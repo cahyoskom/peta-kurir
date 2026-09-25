@@ -674,6 +674,15 @@
                     <input type="text" id="search-input" placeholder="Cari nama / gang / nomor / patokan">
                     <button id="search-btn">Cari</button>
                 </div>
+                <div class="filter-buttons">
+                    <button class="filter-btn active" data-map-filter="semua">Semua</button>
+                    <button class="filter-btn" data-map-filter="belum">Belum Selesai</button>
+                    <button class="filter-btn" data-map-filter="berhasil">Berhasil</button>
+                    <button class="filter-btn" data-map-filter="bermasalah">Bermasalah</button>
+                    <button class="filter-btn" data-map-filter="cod">COD</button>
+                    <button class="filter-btn" data-map-filter="nitip">Nitip</button>
+                    <button class="filter-btn" data-map-filter="sulit">Sulit</button>
+                </div>
                 <div id="map"></div>
                 <div class="fab-container">
                     <button class="fab" id="record-btn" title="Catat Selesai">✓</button>
@@ -689,6 +698,7 @@
                 </div>
                 <div class="filter-buttons">
                     <button class="filter-btn active" data-filter="semua">Semua</button>
+                    <button class="filter-btn" data-filter="belum">Belum Selesai</button>
                     <button class="filter-btn" data-filter="berhasil">Berhasil</button>
                     <button class="filter-btn" data-filter="bermasalah">Bermasalah</button>
                     <button class="filter-btn" data-filter="cod">COD</button>
@@ -713,6 +723,10 @@
 
                     <button class="btn-secondary" id="export-csv-btn" style="width: 100%; margin-bottom: 24px;">
                         📊 Export CSV (Untuk Excel)
+                    </button>
+
+                    <button class="btn-secondary" id="export-csv-template-btn" style="width: 100%; margin-bottom: 24px;">
+                        📋 Export Template CSV (Contoh Import)
                     </button>
 
                     <h3 style="margin-bottom: 12px; font-size: 14px;">Import Data</h3>
@@ -921,12 +935,13 @@
         let currentLocation = null;
         let currentAddresses = [];
         let currentFilter = 'semua';
+        let currentMapFilter = 'semua';
         let currentDetailId = null;
 
         // Initialize IndexedDB
         function initDB() {
             return new Promise((resolve, reject) => {
-                const req = indexedDB.open('PetaKurir', 1);
+                const req = indexedDB.open('PetaKurir', 2);
 
                 req.onerror = () => reject(req.error);
                 req.onsuccess = () => {
@@ -936,9 +951,16 @@
 
                 req.onupgradeneeded = (e) => {
                     const database = e.target.result;
+                    
+                    // Migrate old version
+                    if (e.oldVersion < 2) {
+                        if (database.objectStoreNames.contains('addresses')) {
+                            database.deleteObjectStore('addresses');
+                        }
+                    }
+                    
                     if (!database.objectStoreNames.contains('addresses')) {
                         const store = database.createObjectStore('addresses', { keyPath: 'id' });
-                        store.createIndex('recipient_name', 'recipient_name');
                         store.createIndex('created_at', 'created_at');
                         store.createIndex('location_type', 'location_type');
                         store.createIndex('payment_status', 'payment_status');
@@ -1052,34 +1074,132 @@ self.addEventListener('fetch', (e) => {
         async function updateMapMarkers() {
             // Remove existing markers
             map.eachLayer((layer) => {
-                if (layer instanceof L.Marker) {
+                if (layer instanceof L.Marker || layer instanceof L.CircleMarker) {
                     map.removeLayer(layer);
                 }
             });
 
-            // Add current location
+            // Add current location with pulse effect
             if (currentLocation) {
+                // Blue circle untuk current location
                 L.circleMarker([currentLocation.latitude, currentLocation.longitude], {
-                    radius: 6,
+                    radius: 8,
                     fillColor: '#2563eb',
                     color: '#2563eb',
                     weight: 2,
                     opacity: 1,
                     fillOpacity: 0.8
+                }).addTo(map).bindPopup('📍 Lokasi Anda Saat Ini');
+
+                // Outer pulsing circle
+                L.circleMarker([currentLocation.latitude, currentLocation.longitude], {
+                    radius: 15,
+                    fillColor: '#2563eb',
+                    color: '#2563eb',
+                    weight: 1,
+                    opacity: 0.3,
+                    fillOpacity: 0.1
                 }).addTo(map);
             }
 
-            // Add address markers
+            // Add address markers with filter
             const addresses = await getAllAddresses();
+            
             addresses.forEach((addr) => {
-                const marker = L.marker([addr.latitude, addr.longitude], {
-                    title: addr.recipient_name
-                }).addTo(map);
+                // Apply map filter
+                let shouldShow = true;
+                
+                if (currentMapFilter !== 'semua') {
+                    if (currentMapFilter === 'belum') {
+                        shouldShow = addr.delivery_status === 'belum selesai';
+                    } else if (currentMapFilter === 'berhasil') {
+                        shouldShow = (!addr.problem_tags || addr.problem_tags.length === 0) && addr.delivery_status !== 'belum selesai';
+                    } else if (currentMapFilter === 'bermasalah') {
+                        shouldShow = addr.problem_tags && addr.problem_tags.length > 0;
+                    } else if (currentMapFilter === 'cod') {
+                        shouldShow = addr.payment_status && addr.payment_status.includes('cod');
+                    } else if (currentMapFilter === 'nitip') {
+                        shouldShow = addr.location_type === 'nitip';
+                    } else if (currentMapFilter === 'sulit') {
+                        shouldShow = addr.location_type === 'sulit' || addr.location_type === 'patokan';
+                    }
+                }
+                
+                if (!shouldShow) return;
 
-                marker.on('click', () => showAddressDetail(addr.id));
+                // Determine color based on status
+                let markerColor = '#10b981'; // green (berhasil)
+                let markerIcon = '📍';
 
-                const popup = `<strong>${addr.recipient_name}</strong><br>${addr.gang || ''} ${addr.house_number || ''}`;
+                if (addr.delivery_status === 'belum selesai') {
+                    markerColor = '#f59e0b'; // orange (belum selesai)
+                    markerIcon = '🔔';
+                } else if (addr.problem_tags && addr.problem_tags.length > 0) {
+                    markerColor = '#ef4444'; // red (bermasalah)
+                    markerIcon = '⚠️';
+                } else if (addr.location_type === 'nitip') {
+                    markerColor = '#f59e0b'; // orange (nitip)
+                    markerIcon = '📦';
+                } else if (addr.location_type === 'sulit' || addr.location_type === 'patokan') {
+                    markerColor = '#f59e0b'; // orange (sulit)
+                    markerIcon = '🔍';
+                }
+
+                // Create custom icon
+                const icon = L.divIcon({
+                    html: `<div style="
+                        background: ${markerColor};
+                        color: white;
+                        border-radius: 50%;
+                        width: 36px;
+                        height: 36px;
+                        display: flex;
+                        align-items: center;
+                        justify-content: center;
+                        font-size: 18px;
+                        border: 3px solid white;
+                        box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+                        cursor: pointer;
+                    ">${markerIcon}</div>`,
+                    className: 'custom-marker',
+                    iconSize: [36, 36],
+                    iconAnchor: [18, 18],
+                    popupAnchor: [0, -20]
+                });
+
+                const marker = L.marker([addr.latitude, addr.longitude], { icon: icon }).addTo(map);
+
+                // Enhanced popup
+                const problemTags = addr.problem_tags && addr.problem_tags.length > 0 
+                    ? `<div style="color: #ef4444; font-size: 11px; margin-top: 4px;">⚠️ ${addr.problem_tags.join(', ')}</div>`
+                    : '';
+
+                const paymentBadge = addr.payment_status 
+                    ? `<div style="display: inline-block; background: #e5e7eb; padding: 2px 6px; border-radius: 3px; font-size: 10px; margin-top: 4px;">${formatPaymentStatus(addr.payment_status)}</div>`
+                    : '';
+
+                const popup = `
+                    <div style="font-size: 13px; min-width: 150px;">
+                        <strong>${addr.recipient_name}</strong><br>
+                        ${addr.gang || ''} ${addr.house_number || ''}<br>
+                        <small style="color: #666;">${addr.landmark || addr.address || ''}</small>
+                        ${paymentBadge}
+                        ${problemTags}
+                        <div style="margin-top: 6px; font-size: 11px; color: #999;">
+                            Kunjungan: ${addr.visit_count || 1}x
+                        </div>
+                        <div style="margin-top: 6px; text-align: center; font-size: 12px;">
+                            <strong style="color: #2563eb; cursor: pointer;" onclick="showAddressDetail('${addr.id}')">👉 Lihat Detail</strong>
+                        </div>
+                    </div>
+                `;
+
                 marker.bindPopup(popup);
+
+                // Also click marker to show detail
+                marker.on('click', () => {
+                    showAddressDetail(addr.id);
+                });
             });
         }
 
@@ -1117,6 +1237,20 @@ self.addEventListener('fetch', (e) => {
                 }
                 if (!address.visit_count) {
                     address.visit_count = 0;
+                }
+                
+                // Migrate old data: recipient_name → recipients array
+                if (address.recipient_name && (!address.recipients || address.recipients.length === 0)) {
+                    address.recipients = [{
+                        name: address.recipient_name,
+                        status: address.delivery_status || 'berhasil',
+                        added_at: address.created_at
+                    }];
+                }
+                
+                // Ensure recipients array exists
+                if (!address.recipients) {
+                    address.recipients = [];
                 }
 
                 const store = db.transaction('addresses', 'readwrite').objectStore('addresses');
@@ -1469,6 +1603,12 @@ self.addEventListener('fetch', (e) => {
                 raw_voice_note: document.getElementById('voice-transcript').value,
                 visit_count: 1,
                 last_visit_at: new Date().toISOString(),
+                delivery_status: 'berhasil',
+                recipients: [{
+                    name: name,
+                    status: 'berhasil',
+                    added_at: new Date().toISOString()
+                }],
                 history: [{
                     date: new Date().toISOString(),
                     status: 'berhasil',
@@ -1530,13 +1670,36 @@ self.addEventListener('fetch', (e) => {
             existing.visit_count = (existing.visit_count || 0) + 1;
             existing.last_visit_at = new Date().toISOString();
 
+            // Initialize recipients if not exists
+            if (!existing.recipients) {
+                existing.recipients = existing.recipient_name ? [{
+                    name: existing.recipient_name,
+                    status: existing.delivery_status || 'berhasil',
+                    added_at: existing.created_at
+                }] : [];
+            }
+
+            // Add new recipients (avoid duplicate names)
+            if (newData.recipients) {
+                newData.recipients.forEach((newRecipient) => {
+                    const exists = existing.recipients.some((r) => r.name.toLowerCase() === newRecipient.name.toLowerCase());
+                    if (!exists) {
+                        existing.recipients.push({
+                            name: newRecipient.name,
+                            status: newRecipient.status || 'belum selesai',
+                            added_at: new Date().toISOString()
+                        });
+                    }
+                });
+            }
+
             if (!existing.history) existing.history = [];
             existing.history.push({
                 date: new Date().toISOString(),
-                status: 'berhasil',
+                status: 'belum selesai',
                 payment_status: newData.payment_status,
                 landmark: newData.landmark,
-                notes: newData.description
+                notes: `${newData.recipients.map((r) => r.name).join(', ')} - ${newData.description}`
             });
 
             // Update with new data if provided
@@ -1544,12 +1707,15 @@ self.addEventListener('fetch', (e) => {
             if (newData.payment_status) existing.payment_status = newData.payment_status;
             if (newData.problem_tags.length > 0) existing.problem_tags = newData.problem_tags;
             if (newData.description) existing.description = newData.description;
+            
+            // Set delivery status to "belum selesai" if has new recipients
+            existing.delivery_status = 'belum selesai';
 
             await saveAddress(existing);
             closeRecordSheet();
             updateMapMarkers();
             closeDuplicateModal();
-            showModal('Sukses', '✓ Alamat digabungkan!');
+            showModal('Sukses', `✓ Alamat digabungkan! ${newData.recipients.length} recipient baru (status: belum selesai)`);
         }
 
         async function saveDuplicateNew() {
@@ -1600,7 +1766,31 @@ self.addEventListener('fetch', (e) => {
                 </div>
             `;
 
-            if (address.problem_tags && address.problem_tags.length > 0) {
+            // Display recipients with individual status
+            if (address.recipients && address.recipients.length > 0) {
+                html += `
+                    <div class="form-group">
+                        <label>Penerima (${address.recipients.length})</label>
+                        <div style="font-size: 13px; line-height: 1.8;">
+                `;
+                address.recipients.forEach((recipient) => {
+                    const statusColor = recipient.status === 'berhasil' ? '#10b981' : recipient.status === 'belum selesai' ? '#f59e0b' : '#ef4444';
+                    const statusLabel = recipient.status === 'berhasil' ? 'Selesai' : recipient.status === 'belum selesai' ? 'Belum Selesai' : 'Gagal';
+                    html += `
+                        <div style="padding: 8px; background: var(--bg-alt); border-radius: 4px; margin-bottom: 6px;">
+                            <strong>${recipient.name}</strong><br>
+                            <span style="color: ${statusColor}; font-weight: 600; font-size: 12px;">● ${statusLabel}</span><br>
+                            <small style="color: var(--text-light);">Ditambah: ${formatDate(recipient.added_at)}</small>
+                        </div>
+                    `;
+                });
+                html += `
+                        </div>
+                    </div>
+                `;
+            }
+
+            html += `
                 html += `
                     <div class="form-group">
                         <label>Masalah</label>
@@ -1767,7 +1957,8 @@ self.addEventListener('fetch', (e) => {
             let filtered = addresses;
             if (currentFilter !== 'semua') {
                 filtered = addresses.filter((addr) => {
-                    if (currentFilter === 'berhasil') return addr.problem_tags?.length === 0;
+                    if (currentFilter === 'belum') return addr.delivery_status === 'belum selesai';
+                    if (currentFilter === 'berhasil') return addr.problem_tags?.length === 0 && addr.delivery_status !== 'belum selesai';
                     if (currentFilter === 'bermasalah') return addr.problem_tags?.length > 0;
                     if (currentFilter === 'cod') return addr.payment_status?.includes('cod');
                     if (currentFilter === 'nitip') return addr.location_type === 'nitip';
@@ -1798,18 +1989,27 @@ self.addEventListener('fetch', (e) => {
                 return;
             }
 
-            list.innerHTML = filtered.map((addr) => `
-                <div class="address-item" onclick="showAddressDetail('${addr.id}')">
-                    <div class="address-item-name">${addr.recipient_name}</div>
-                    <div class="address-item-details">
-                        ${addr.gang || ''} ${addr.house_number || ''}<br>
-                        ${addr.landmark || addr.address || ''}
+            list.innerHTML = filtered.map((addr) => {
+                const statusColor = addr.delivery_status === 'belum selesai' ? '#f59e0b' : '#10b981';
+                const statusLabel = addr.delivery_status === 'belum selesai' ? '🔔 Belum Selesai' : '✓ Selesai';
+                const recipientCount = addr.recipients ? addr.recipients.length : 1;
+                
+                return `
+                    <div class="address-item" onclick="showAddressDetail('${addr.id}')">
+                        <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 4px;">
+                            <div class="address-item-name">${addr.recipient_name}</div>
+                            <span style="color: ${statusColor}; font-weight: 600; font-size: 12px;">${statusLabel}</span>
+                        </div>
+                        <div class="address-item-details">
+                            ${addr.gang || ''} ${addr.house_number || ''}<br>
+                            ${addr.landmark || addr.address || ''}
+                        </div>
+                        <div class="address-item-meta">
+                            📍 ${formatDate(addr.last_visit_at || addr.created_at)} · ${addr.visit_count || 1}x · ${recipientCount} penerima
+                        </div>
                     </div>
-                    <div class="address-item-meta">
-                        📍 ${formatDate(addr.last_visit_at || addr.created_at)} · ${addr.visit_count || 1}x
-                    </div>
-                </div>
-            `).join('');
+                `;
+            }).join('');
         }
 
         // ============================================
@@ -1875,6 +2075,21 @@ self.addEventListener('fetch', (e) => {
             URL.revokeObjectURL(url);
         }
 
+        function exportCSVTemplate() {
+            const template = `id,nama,gang,nomor,alamat,latitude,longitude,patokan,status_pembayaran,masalah,tipe_lokasi,visit_count,kunjungan_terakhir,catatan
+addr_001,Pak Budi,Gang 4,27,Jl. Raya No. 10,-6.2088,106.8650,Pagar hitam; sebelah warung biru,cod-transfer,Sulit dihubungi,-,1,Hari ini,COD minta transfer
+addr_002,Bu Siti,Gang 2,15,Jl. Makmur No. 5,-6.2100,106.8700,Sebelah toko roti,cod,,jelas,1,Kemarin,
+addr_003,Pak Ahmad,Gang 5,8,Jl. Tengah No. 20,-6.2050,106.8600,Rumah hijau; jalan buntu,transfer,Sulit ditemukan,sulit,1,Hari ini,Alamat sulit dicari`;
+
+            const blob = new Blob([template], { type: 'text/csv' });
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = `peta-kurir-template.csv`;
+            link.click();
+            URL.revokeObjectURL(url);
+        }
+
         function importJSON() {
             document.getElementById('file-import-json').click();
         }
@@ -1917,9 +2132,22 @@ self.addEventListener('fetch', (e) => {
                         if (!lines[i].trim()) continue;
 
                         const values = parseCSVLine(lines[i]);
+                        
+                        // Parse recipients (bisa single atau multiple dipisah ";")
+                        const recipientNames = (values[1] || '')
+                            .split(';')
+                            .map((n) => n.trim())
+                            .filter((n) => n);
+                        
+                        const recipients = recipientNames.map((name) => ({
+                            name: name,
+                            status: 'belum selesai',
+                            added_at: new Date().toISOString()
+                        }));
+                        
                         const addr = {
                             id: values[0] || 'addr_' + Date.now(),
-                            recipient_name: values[1] || '',
+                            recipient_name: values[1] || '', // Keep for compatibility
                             gang: values[2] || '',
                             house_number: values[3] || '',
                             address: values[4] || '',
@@ -1930,7 +2158,16 @@ self.addEventListener('fetch', (e) => {
                             problem_tags: (values[9] || '').split(';').map((t) => t.trim()).filter((t) => t),
                             location_type: values[10] || 'jelas',
                             visit_count: parseInt(values[11]) || 1,
-                            description: values[13] || ''
+                            description: values[13] || '',
+                            delivery_status: 'belum selesai',
+                            recipients: recipients,
+                            history: [{
+                                date: new Date().toISOString(),
+                                status: 'belum selesai',
+                                payment_status: values[8] || 'belum',
+                                landmark: values[7] || '',
+                                notes: `Import dari OCR: ${recipientNames.join(', ')}`
+                            }]
                         };
 
                         if (addr.recipient_name && addr.latitude && addr.longitude) {
@@ -2036,12 +2273,36 @@ self.addEventListener('fetch', (e) => {
                     const dup = await checkDuplicate(newAddr.latitude, newAddr.longitude);
 
                     if (dup) {
+                        // Initialize recipients if not exists
+                        if (!dup.recipients) {
+                            dup.recipients = dup.recipient_name ? [{
+                                name: dup.recipient_name,
+                                status: dup.delivery_status || 'berhasil',
+                                added_at: dup.created_at
+                            }] : [];
+                        }
+
+                        // Merge new recipients (avoid duplicates)
+                        if (newAddr.recipients) {
+                            newAddr.recipients.forEach((newRecipient) => {
+                                const exists = dup.recipients.some((r) => r.name.toLowerCase() === newRecipient.name.toLowerCase());
+                                if (!exists) {
+                                    dup.recipients.push({
+                                        name: newRecipient.name,
+                                        status: newRecipient.status || 'belum selesai',
+                                        added_at: new Date().toISOString()
+                                    });
+                                }
+                            });
+                        }
+
                         // Merge history
                         if (!dup.history) dup.history = [];
                         if (newAddr.history) {
                             dup.history.push(...newAddr.history);
                         }
                         dup.visit_count = (dup.visit_count || 0) + (newAddr.visit_count || 1);
+                        dup.delivery_status = 'belum selesai'; // Mark as pending
 
                         await saveAddress(dup);
                     } else {
@@ -2095,8 +2356,10 @@ self.addEventListener('fetch', (e) => {
                 updateAddressList();
             } else if (pageId === 'map-page') {
                 setTimeout(() => {
-                    map.invalidateSize();
-                    updateMapMarkers();
+                    if (map) {
+                        map.invalidateSize();
+                        updateMapMarkers();
+                    }
                 }, 100);
             }
         }
@@ -2332,17 +2595,27 @@ self.addEventListener('fetch', (e) => {
         document.getElementById('list-search-input').addEventListener('input', updateAddressList);
         document.getElementById('voice-search-btn').addEventListener('click', startVoiceSearch);
 
-        document.querySelectorAll('.filter-btn').forEach((btn) => {
+        document.querySelectorAll('[data-filter]').forEach((btn) => {
             btn.addEventListener('click', () => {
-                document.querySelectorAll('.filter-btn').forEach((b) => b.classList.remove('active'));
+                document.querySelectorAll('[data-filter]').forEach((b) => b.classList.remove('active'));
                 btn.classList.add('active');
                 currentFilter = btn.dataset.filter;
                 updateAddressList();
             });
         });
 
+        document.querySelectorAll('[data-map-filter]').forEach((btn) => {
+            btn.addEventListener('click', () => {
+                document.querySelectorAll('[data-map-filter]').forEach((b) => b.classList.remove('active'));
+                btn.classList.add('active');
+                currentMapFilter = btn.dataset.mapFilter;
+                updateMapMarkers();
+            });
+        });
+
         document.getElementById('export-json-btn').addEventListener('click', exportJSON);
         document.getElementById('export-csv-btn').addEventListener('click', exportCSV);
+        document.getElementById('export-csv-template-btn').addEventListener('click', exportCSVTemplate);
         document.getElementById('import-json-btn').addEventListener('click', importJSON);
         document.getElementById('import-csv-btn').addEventListener('click', importCSV);
         document.getElementById('clear-demo-btn').addEventListener('click', clearDemoData);
