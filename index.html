@@ -5,7 +5,11 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <meta name="theme-color" content="#2563eb">
     <meta name="description" content="Peta Kurir - Buku alamat pribadi kurir berbasis GPS">
-    <link rel="manifest" href="data:application/manifest+json,%7B%22name%22%3A%22Peta%20Kurir%22%2C%22short_name%22%3A%22Peta%20Kurir%22%2C%22start_url%22%3A%22%2F%22%2C%22display%22%3A%22standalone%22%2C%22background_color%22%3A%22%23ffffff%22%2C%22theme_color%22%3A%22%232563eb%22%2C%22icons%22%3A%5B%7B%22src%22%3A%22data%3Aimage%2Fsvg%2Bxml%2C%253Csvg%2520xmlns%253D%2522http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%2522%2520viewBox%253D%25220%2520000%2520192%2520192%2522%253E%253Ccircle%2520cx%253D%252296%2522%2520cy%253D%252296%2522%2520r%253D%252280%2522%2520fill%253D%25222563eb%2522%2F%253E%253Ctext%2520x%253D%252296%2522%2520y%253D%252710%2522%2520font-size%253D%252750%2522%2520fill%253D%2522white%2522%2520text-anchor%253D%2522middle%2522%2520dominant-baseline%253D%2522middle%2522%253E%25F0%259F%2597%2BA%253C%2Ftext%253E%253C%2Fsvg%253E%22%2C%22sizes%22%3A%22192x192%22%2C%22type%22%3A%22image%2Fsvg%2Bxml%22%2C%22purpose%22%3A%22any%22%7D%5D%7D">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="Peta Kurir">
+    <link rel="apple-touch-icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 180 180'><rect fill='%232563eb' width='180' height='180'/><text x='90' y='110' font-size='100' fill='white' text-anchor='middle' dominant-baseline='middle'>🗺️</text></svg>">
+    <link rel="manifest" href="data:application/manifest+json,{%22name%22:%22Peta Kurir%22,%22short_name%22:%22PK%22,%22start_url%22:%22.%22,%22display%22:%22standalone%22,%22background_color%22:%22%23fff%22,%22theme_color%22:%22%232563eb%22,%22orientation%22:%22portrait%22}">
     <title>Peta Kurir</title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
     <style>
@@ -681,6 +685,7 @@
                 <div class="search-bar">
                     <input type="text" id="list-search-input" placeholder="Cari alamat...">
                     <button id="list-search-btn">Cari</button>
+                    <button id="voice-search-btn" title="Voice search" style="padding: 8px 12px; background: var(--secondary); color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 14px; font-weight: 600;">🎤</button>
                 </div>
                 <div class="filter-buttons">
                     <button class="filter-btn active" data-filter="semua">Semua</button>
@@ -947,21 +952,14 @@
             if ('serviceWorker' in navigator) {
                 const swCode = `
 const CACHE_NAME = 'peta-kurir-v1';
-const URLS_TO_CACHE = [
-  '/',
-  '/index.html',
-  'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css',
-  'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js'
-];
 
 self.addEventListener('install', (e) => {
-  e.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => cache.addAll(URLS_TO_CACHE))
-  );
+  console.log('SW: installing');
   self.skipWaiting();
 });
 
 self.addEventListener('activate', (e) => {
+  console.log('SW: activating');
   e.waitUntil(
     caches.keys().then((names) => Promise.all(names.filter((n) => n !== CACHE_NAME).map((n) => caches.delete(n))))
   );
@@ -969,47 +967,81 @@ self.addEventListener('activate', (e) => {
 });
 
 self.addEventListener('fetch', (e) => {
-  if (e.request.url.includes('tile.openstreetmap')) return;
+  // Skip map tiles
+  if (e.request.url.includes('tile.openstreetmap') || e.request.url.includes('googleapis')) return;
   
   e.respondWith(
-    caches.match(e.request).then((res) => res || fetch(e.request).then((res) => {
-      if (!res || res.status !== 200 || res.type !== 'basic') return res;
-      const clone = res.clone();
-      caches.open(CACHE_NAME).then((cache) => cache.put(e.request, clone));
-      return res;
-    }))
+    caches.match(e.request).then((res) => {
+      if (res) return res;
+      return fetch(e.request).then((res) => {
+        if (!res || res.status !== 200 || res.type === 'error') return res;
+        const clone = res.clone();
+        caches.open(CACHE_NAME).then((cache) => cache.put(e.request, clone));
+        return res;
+      }).catch(() => {
+        // Offline fallback
+        return new Response('Offline');
+      });
+    })
   );
 });
 `;
 
                 const blob = new Blob([swCode], { type: 'application/javascript' });
                 const url = URL.createObjectURL(blob);
-                navigator.serviceWorker.register(url).catch(() => {});
+                navigator.serviceWorker.register(url).then((reg) => {
+                    console.log('SW: registered', reg);
+                }).catch((err) => {
+                    console.warn('SW: register error', err);
+                });
             }
         }
 
         // Initialize map
         function initMap() {
-            map = L.map('map').setView([-6.2088, 106.8650], 13);
+            try {
+                const mapContainer = document.getElementById('map');
+                
+                // Ensure map container is visible
+                mapContainer.style.backgroundColor = '#e5e7eb';
+                mapContainer.style.display = 'flex';
+                mapContainer.style.alignItems = 'center';
+                mapContainer.style.justifyContent = 'center';
+                
+                // Check if Leaflet is available
+                if (typeof L === 'undefined') {
+                    mapContainer.innerHTML = '<div style="text-align: center; color: #666;">Peta sedang memuat...</div>';
+                    setTimeout(initMap, 1000);
+                    return;
+                }
+                
+                map = L.map('map').setView([-6.2088, 106.8650], 13);
 
-            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-                attribution: '© OpenStreetMap contributors',
-                maxZoom: 19
-            }).addTo(map);
+                L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                    attribution: '© OpenStreetMap contributors',
+                    maxZoom: 19,
+                    errorTileUrl: 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256"><rect fill="%23f5f5f5" width="256" height="256"/></svg>'
+                }).addTo(map);
 
-            // Get current location
-            if (navigator.geolocation) {
-                navigator.geolocation.watchPosition(
-                    (pos) => {
-                        currentLocation = {
-                            latitude: pos.coords.latitude,
-                            longitude: pos.coords.longitude
-                        };
-                        map.setView([currentLocation.latitude, currentLocation.longitude], map.getZoom());
-                        updateMapMarkers();
-                    },
-                    () => { }
-                );
+                // Get current location
+                if (navigator.geolocation) {
+                    navigator.geolocation.watchPosition(
+                        (pos) => {
+                            currentLocation = {
+                                latitude: pos.coords.latitude,
+                                longitude: pos.coords.longitude
+                            };
+                            if (map) {
+                                map.setView([currentLocation.latitude, currentLocation.longitude], map.getZoom());
+                                updateMapMarkers();
+                            }
+                        },
+                        () => { }
+                    );
+                }
+            } catch (err) {
+                console.warn('Map init error:', err);
+                document.getElementById('map').innerHTML = '<div style="text-align: center; color: #999; padding: 20px;">Peta tidak tersedia. Gunakan daftar alamat untuk melihat data.</div>';
             }
         }
 
@@ -1235,6 +1267,9 @@ self.addEventListener('fetch', (e) => {
         async function showRecordSheet() {
             resetRecordForm();
 
+            // Show record sheet first
+            document.getElementById('record-sheet').classList.add('active');
+
             // Get GPS & show map for adjustment
             if (navigator.geolocation) {
                 document.getElementById('gps-status').innerHTML = '<span class="loading"></span> Mengambil lokasi...';
@@ -1246,25 +1281,20 @@ self.addEventListener('fetch', (e) => {
                             longitude: pos.coords.longitude
                         };
                         
-                        // Show record sheet first
-                        document.getElementById('record-sheet').classList.add('active');
-                        
-                        // Wait for DOM & initialize map adjustment UI
+                        // Initialize map adjustment UI
                         setTimeout(() => {
                             initLocationAdjustment();
                         }, 100);
                     },
                     (err) => {
-                        document.getElementById('gps-status').innerHTML = '⚠️ Lokasi tidak bisa diambil';
-                        document.getElementById('record-sheet').classList.add('active');
-                        document.getElementById('manual-form').style.display = 'block';
-                        initVoiceRecognition();
+                        // GPS failed - show manual input fallback
+                        console.warn('Geolocation error:', err);
+                        initManualLocationInput();
                     }
                 );
             } else {
-                document.getElementById('record-sheet').classList.add('active');
-                document.getElementById('manual-form').style.display = 'block';
-                initVoiceRecognition();
+                // Geolocation not supported - show manual input
+                initManualLocationInput();
             }
         }
 
@@ -1334,6 +1364,56 @@ self.addEventListener('fetch', (e) => {
             initVoiceRecognition();
         }
 
+        function initManualLocationInput() {
+            // If GPS failed, show manual input for coordinates
+            const container = document.getElementById('gps-status');
+            
+            container.innerHTML = `
+                <div style="padding: 12px 0;">
+                    <div style="font-size: 13px; color: var(--danger); margin-bottom: 12px;">
+                        ⚠️ Lokasi GPS tidak tersedia. Input manual:
+                    </div>
+                    <div class="form-group" style="margin-bottom: 8px;">
+                        <label style="font-size: 11px;">Latitude</label>
+                        <input type="number" id="manual-lat" placeholder="-6.2088" step="0.00001" style="padding: 8px; width: 100%;">
+                    </div>
+                    <div class="form-group">
+                        <label style="font-size: 11px;">Longitude</label>
+                        <input type="number" id="manual-lon" placeholder="106.8650" step="0.00001" style="padding: 8px; width: 100%;">
+                    </div>
+                    <button class="btn-secondary" onclick="useManualCoordinates()" style="width: 100%; margin-top: 8px; padding: 8px; font-size: 13px;">
+                        ✓ Gunakan Koordinat
+                    </button>
+                </div>
+            `;
+
+            // Show manual form
+            document.getElementById('manual-form').style.display = 'block';
+            initVoiceRecognition();
+        }
+
+        function useManualCoordinates() {
+            const lat = parseFloat(document.getElementById('manual-lat').value);
+            const lon = parseFloat(document.getElementById('manual-lon').value);
+
+            if (isNaN(lat) || isNaN(lon)) {
+                showModal('Error', '❌ Latitude dan Longitude harus angka valid.');
+                return;
+            }
+
+            if (lat < -90 || lat > 90 || lon < -180 || lon > 180) {
+                showModal('Error', '❌ Koordinat di luar jangkauan (Lat: -90 to 90, Lon: -180 to 180).');
+                return;
+            }
+
+            currentLocation = {
+                latitude: lat,
+                longitude: lon
+            };
+
+            document.getElementById('gps-status').innerHTML = `✓ Lokasi manual<br><small>${lat.toFixed(5)}, ${lon.toFixed(5)}</small>`;
+        }
+
         function resetRecordForm() {
             document.getElementById('voice-result').style.display = 'none';
             document.getElementById('manual-form').style.display = 'false';
@@ -1356,8 +1436,8 @@ self.addEventListener('fetch', (e) => {
         }
 
         async function saveRecord() {
-            if (!currentLocation) {
-                showModal('Error', 'Lokasi GPS tidak ditemukan. Coba lagi.');
+            if (!currentLocation || currentLocation.latitude === undefined || currentLocation.longitude === undefined) {
+                showModal('Error', '❌ Lokasi belum diset. Input koordinat manual terlebih dahulu.');
                 return;
             }
 
@@ -2147,6 +2227,70 @@ self.addEventListener('fetch', (e) => {
         }
 
         // ============================================
+        // VOICE SEARCH
+        // ============================================
+
+        let searchRecognition = null;
+
+        function initSearchVoiceRecognition() {
+            const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+            if (!SpeechRecognition) {
+                showModal('Error', 'Voice search tidak tersedia di browser Anda.');
+                return;
+            }
+
+            searchRecognition = new SpeechRecognition();
+            searchRecognition.lang = 'id-ID';
+            searchRecognition.continuous = false;
+            searchRecognition.interimResults = false;
+
+            searchRecognition.onstart = () => {
+                const btn = document.getElementById('voice-search-btn');
+                btn.textContent = '🎤 Mendengarkan...';
+                btn.style.background = 'var(--danger)';
+            };
+
+            searchRecognition.onresult = (e) => {
+                const transcript = Array.from(e.results)
+                    .map((result) => result[0].transcript)
+                    .join(' ')
+                    .toLowerCase();
+
+                document.getElementById('list-search-input').value = transcript;
+                updateAddressList();
+
+                const btn = document.getElementById('voice-search-btn');
+                btn.textContent = '🎤';
+                btn.style.background = 'var(--secondary)';
+            };
+
+            searchRecognition.onerror = (e) => {
+                showModal('Error', '❌ Voice error: ' + e.error);
+                const btn = document.getElementById('voice-search-btn');
+                btn.textContent = '🎤';
+                btn.style.background = 'var(--secondary)';
+            };
+
+            searchRecognition.onend = () => {
+                const btn = document.getElementById('voice-search-btn');
+                btn.textContent = '🎤';
+                btn.style.background = 'var(--secondary)';
+            };
+        }
+
+        function startVoiceSearch() {
+            if (!searchRecognition) {
+                initSearchVoiceRecognition();
+            }
+
+            try {
+                searchRecognition.start();
+            } catch (e) {
+                // Already listening
+            }
+        }
+
+        // ============================================
         // EVENT LISTENERS
         // ============================================
 
@@ -2186,6 +2330,7 @@ self.addEventListener('fetch', (e) => {
 
         document.getElementById('list-search-btn').addEventListener('click', updateAddressList);
         document.getElementById('list-search-input').addEventListener('input', updateAddressList);
+        document.getElementById('voice-search-btn').addEventListener('click', startVoiceSearch);
 
         document.querySelectorAll('.filter-btn').forEach((btn) => {
             btn.addEventListener('click', () => {
