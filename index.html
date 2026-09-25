@@ -1790,7 +1790,7 @@ self.addEventListener('fetch', (e) => {
                 `;
             }
 
-            html += `
+            if (address.problem_tags && address.problem_tags.length > 0) {
                 html += `
                     <div class="form-group">
                         <label>Masalah</label>
