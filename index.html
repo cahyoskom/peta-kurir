@@ -705,6 +705,24 @@
                     <button class="filter-btn" data-filter="nitip">Nitip</button>
                     <button class="filter-btn" data-filter="sulit">Sulit</button>
                 </div>
+
+                <!-- BULK UPDATE SECTION -->
+                <div id="bulk-section" style="display: none; background: var(--bg-alt); padding: 12px; border-radius: 6px; margin-bottom: 12px;">
+                    <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px;">
+                        <label style="font-weight: 600; font-size: 13px;">
+                            <input type="checkbox" id="bulk-select-all" style="cursor: pointer; margin-right: 6px;">
+                            Pilih Semua (<span id="bulk-count">0</span>)
+                        </label>
+                        <button id="bulk-cancel-btn" style="padding: 4px 8px; background: var(--border); border: none; border-radius: 3px; cursor: pointer; font-size: 12px;">Batal</button>
+                    </div>
+                    
+                    <div style="display: flex; gap: 6px;">
+                        <button id="bulk-status-belum" style="flex: 1; padding: 8px; background: #f59e0b; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 12px; font-weight: 600;">🔔 Belum</button>
+                        <button id="bulk-status-berhasil" style="flex: 1; padding: 8px; background: #10b981; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 12px; font-weight: 600;">✓ Berhasil</button>
+                        <button id="bulk-status-gagal" style="flex: 1; padding: 8px; background: #ef4444; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 12px; font-weight: 600;">❌ Gagal</button>
+                    </div>
+                </div>
+
                 <div class="address-list" id="address-list"></div>
             </div>
 
@@ -728,6 +746,22 @@
                     <button class="btn-secondary" id="export-csv-template-btn" style="width: 100%; margin-bottom: 24px;">
                         📋 Export Template CSV (Contoh Import)
                     </button>
+
+                    <!-- SHORT EXPORT SECTION -->
+                    <h3 style="margin-bottom: 12px; font-size: 14px;">📄 Export Singkat</h3>
+
+                    <div style="background: var(--bg-alt); padding: 12px; border-radius: 6px; margin-bottom: 12px;">
+                        <input type="text" id="short-export-name" placeholder="Cari nama..." style="width: 100%; padding: 8px; border: 1px solid var(--border); border-radius: 4px; font-size: 13px; margin-bottom: 8px; box-sizing: border-box;">
+                        
+                        <div style="display: flex; gap: 8px; margin-bottom: 8px;">
+                            <input type="date" id="short-export-date-start" style="flex: 1; padding: 8px; border: 1px solid var(--border); border-radius: 4px; font-size: 13px;">
+                            <input type="date" id="short-export-date-end" style="flex: 1; padding: 8px; border: 1px solid var(--border); border-radius: 4px; font-size: 13px;">
+                        </div>
+
+                        <button class="btn-secondary" id="export-short-csv-btn" style="width: 100%; font-size: 13px;">
+                            🔽 Export
+                        </button>
+                    </div>
 
                     <h3 style="margin-bottom: 12px; font-size: 14px;">Import Data</h3>
 
@@ -1024,19 +1058,33 @@ self.addEventListener('fetch', (e) => {
             try {
                 const mapContainer = document.getElementById('map');
                 
-                // Ensure map container is visible
-                mapContainer.style.backgroundColor = '#e5e7eb';
-                mapContainer.style.display = 'flex';
-                mapContainer.style.alignItems = 'center';
-                mapContainer.style.justifyContent = 'center';
-                
-                // Check if Leaflet is available
-                if (typeof L === 'undefined') {
-                    mapContainer.innerHTML = '<div style="text-align: center; color: #666;">Peta sedang memuat...</div>';
-                    setTimeout(initMap, 1000);
+                if (!mapContainer) {
+                    console.error('Map container not found');
                     return;
                 }
                 
+                // Ensure map container is visible with proper sizing
+                mapContainer.style.backgroundColor = '#e5e7eb';
+                mapContainer.style.display = 'block';
+                mapContainer.style.width = '100%';
+                mapContainer.style.height = '100%';
+                mapContainer.style.minHeight = '400px';
+                
+                // Check if Leaflet is available
+                if (typeof L === 'undefined') {
+                    console.warn('Leaflet not loaded, retrying...');
+                    mapContainer.innerHTML = '<div style="text-align: center; color: #666; padding: 20px;">Peta sedang memuat...</div>';
+                    setTimeout(initMap, 1500);
+                    return;
+                }
+                
+                // Remove existing map if any
+                if (map) {
+                    map.remove();
+                }
+                mapContainer.innerHTML = '';
+                
+                // Initialize map
                 map = L.map('map').setView([-6.2088, 106.8650], 13);
 
                 L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
@@ -1045,6 +1093,8 @@ self.addEventListener('fetch', (e) => {
                     errorTileUrl: 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256"><rect fill="%23f5f5f5" width="256" height="256"/></svg>'
                 }).addTo(map);
 
+                console.log('✓ Map initialized');
+                
                 // Get current location
                 if (navigator.geolocation) {
                     navigator.geolocation.watchPosition(
@@ -1054,16 +1104,20 @@ self.addEventListener('fetch', (e) => {
                                 longitude: pos.coords.longitude
                             };
                             if (map) {
-                                map.setView([currentLocation.latitude, currentLocation.longitude], map.getZoom());
                                 updateMapMarkers();
                             }
                         },
                         () => { }
                     );
                 }
+                
+                updateMapMarkers();
             } catch (err) {
-                console.warn('Map init error:', err);
-                document.getElementById('map').innerHTML = '<div style="text-align: center; color: #999; padding: 20px;">Peta tidak tersedia. Gunakan daftar alamat untuk melihat data.</div>';
+                console.error('Map init error:', err);
+                const mapContainer = document.getElementById('map');
+                if (mapContainer) {
+                    mapContainer.innerHTML = '<div style="text-align: center; color: #999; padding: 20px;">⚠️ Peta tidak tersedia. Coba refresh atau gunakan daftar alamat.</div>';
+                }
             }
         }
 
@@ -1071,7 +1125,7 @@ self.addEventListener('fetch', (e) => {
         // MAP OPERATIONS
         // ============================================
 
-        async function updateMapMarkers() {
+        async function updateMapMarkers(searchText = '') {
             // Remove existing markers
             map.eachLayer((layer) => {
                 if (layer instanceof L.Marker || layer instanceof L.CircleMarker) {
@@ -1126,6 +1180,20 @@ self.addEventListener('fetch', (e) => {
                 }
                 
                 if (!shouldShow) return;
+
+                // Apply search filter
+                if (searchText && searchText.length > 0) {
+                    const matches = (
+                        (addr.recipient_name || '').toLowerCase().includes(searchText) ||
+                        (addr.gang || '').toLowerCase().includes(searchText) ||
+                        (addr.house_number || '').toLowerCase().includes(searchText) ||
+                        (addr.landmark || '').toLowerCase().includes(searchText) ||
+                        (addr.address || '').toLowerCase().includes(searchText)
+                    );
+                    if (!matches) {
+                        return; // Skip this marker
+                    }
+                }
 
                 // Determine color based on status
                 let markerColor = '#10b981'; // green (berhasil)
@@ -1776,10 +1844,11 @@ self.addEventListener('fetch', (e) => {
                 address.recipients.forEach((recipient) => {
                     const statusColor = recipient.status === 'berhasil' ? '#10b981' : recipient.status === 'belum selesai' ? '#f59e0b' : '#ef4444';
                     const statusLabel = recipient.status === 'berhasil' ? 'Selesai' : recipient.status === 'belum selesai' ? 'Belum Selesai' : 'Gagal';
+                    const escapedName = recipient.name.replace(/'/g, "\\'");
                     html += `
                         <div style="padding: 8px; background: var(--bg-alt); border-radius: 4px; margin-bottom: 6px;">
                             <strong>${recipient.name}</strong><br>
-                            <span style="color: ${statusColor}; font-weight: 600; font-size: 12px;">● ${statusLabel}</span><br>
+                            <span style="color: ${statusColor}; font-weight: 600; font-size: 12px; cursor: pointer; padding: 2px 6px; border-radius: 3px; display: inline-block; background: rgba(0,0,0,0.05);" onclick="showRecipientStatusMenu('${address.id}', '${escapedName}', '${recipient.status}')">● ${statusLabel}</span><br>
                             <small style="color: var(--text-light);">Ditambah: ${formatDate(recipient.added_at)}</small>
                         </div>
                     `;
@@ -1835,6 +1904,99 @@ self.addEventListener('fetch', (e) => {
             detailContent.innerHTML = html;
             document.getElementById('detail-name').textContent = address.recipient_name;
             document.getElementById('detail-sheet').classList.add('active');
+        }
+
+        function closeModal() {
+            const modal = document.getElementById('modal');
+            if (modal) {
+                modal.classList.remove('active');
+            }
+        }
+
+        async function updateRecipientStatus(addrId, recipientName, newStatus) {
+            // Unescape name
+            const displayName = recipientName.replace(/\\'/g, "'");
+            
+            const addr = await getAddressById(addrId);
+            
+            if (addr.recipients) {
+                const recipient = addr.recipients.find((r) => r.name === displayName);
+                if (recipient) {
+                    recipient.status = newStatus;
+                    
+                    // Update delivery_status to "belum selesai" if any recipient belum selesai
+                    const hasIncomplete = addr.recipients.some((r) => r.status === 'belum selesai');
+                    addr.delivery_status = hasIncomplete ? 'belum selesai' : 'berhasil';
+                    
+                    // Add to history
+                    if (!addr.history) addr.history = [];
+                    addr.history.push({
+                        date: new Date().toISOString(),
+                        status: newStatus,
+                        payment_status: addr.payment_status,
+                        notes: `${displayName}: ${newStatus}`
+                    });
+                    
+                    await saveAddress(addr);
+                    
+                    // Close modal first
+                    closeModal();
+                    
+                    // Then refresh UI
+                    setTimeout(() => {
+                        showAddressDetail(addrId);
+                        updateMapMarkers();
+                        updateAddressList();
+                    }, 100);
+                }
+            }
+        }
+
+        function showRecipientStatusMenu(addrId, recipientName, currentStatus) {
+            // Unescape name for display
+            const displayName = recipientName.replace(/\\'/g, "'");
+            
+            const options = [
+                { label: '🔔 Belum Selesai', value: 'belum selesai', active: currentStatus === 'belum selesai' },
+                { label: '✓ Berhasil', value: 'berhasil', active: currentStatus === 'berhasil' },
+                { label: '❌ Gagal', value: 'gagal', active: currentStatus === 'gagal' }
+            ];
+
+            let html = `
+                <div style="padding: 16px; text-align: center;">
+                    <div style="font-size: 14px; margin-bottom: 16px; font-weight: 600;">
+                        Update Status: <strong>${displayName}</strong>
+                    </div>
+                    <div style="display: flex; flex-direction: column; gap: 8px;">
+            `;
+
+            options.forEach((opt) => {
+                const bgColor = opt.active ? '#2563eb' : '#f3f4f6';
+                const textColor = opt.active ? '#fff' : '#000';
+                html += `
+                    <button style="
+                        padding: 10px;
+                        background: ${bgColor};
+                        color: ${textColor};
+                        border: none;
+                        border-radius: 6px;
+                        font-weight: 600;
+                        cursor: pointer;
+                        font-size: 13px;
+                    " onclick="updateRecipientStatus('${addrId}', '${recipientName}', '${opt.value}');">
+                        ${opt.label}
+                    </button>
+                `;
+            });
+
+            html += `
+                    </div>
+                </div>
+            `;
+
+            const modal = document.getElementById('modal-content');
+            modal.innerHTML = html;
+            document.getElementById('modal').classList.add('active');
         }
 
         async function editAddress() {
@@ -1993,11 +2155,18 @@ self.addEventListener('fetch', (e) => {
                 const statusColor = addr.delivery_status === 'belum selesai' ? '#f59e0b' : '#10b981';
                 const statusLabel = addr.delivery_status === 'belum selesai' ? '🔔 Belum Selesai' : '✓ Selesai';
                 const recipientCount = addr.recipients ? addr.recipients.length : 1;
+                const isChecked = bulkSelectedIds.has(addr.id);
                 
                 return `
-                    <div class="address-item" onclick="showAddressDetail('${addr.id}')">
+                    <div class="address-item" data-addr-id="${addr.id}" onclick="showAddressDetail('${addr.id}')">
                         <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 4px;">
-                            <div class="address-item-name">${addr.recipient_name}</div>
+                            <div style="display: flex; align-items: center; flex: 1;">
+                                <input type="checkbox" class="address-item-checkbox" data-addr-id="${addr.id}" 
+                                    ${isChecked ? 'checked' : ''} 
+                                    style="cursor: pointer; margin-right: 8px;" 
+                                    onclick="event.stopPropagation(); toggleBulkSelect('${addr.id}');">
+                                <div class="address-item-name">${addr.recipient_name}</div>
+                            </div>
                             <span style="color: ${statusColor}; font-weight: 600; font-size: 12px;">${statusLabel}</span>
                         </div>
                         <div class="address-item-details">
@@ -2073,6 +2242,166 @@ self.addEventListener('fetch', (e) => {
             link.download = `peta-kurir-export-${new Date().toISOString().split('T')[0]}.csv`;
             link.click();
             URL.revokeObjectURL(url);
+        }
+
+        async function exportShortCSV() {
+            const nameFilter = document.getElementById('short-export-name').value.toLowerCase().trim();
+            const dateStart = document.getElementById('short-export-date-start').value;
+            const dateEnd = document.getElementById('short-export-date-end').value;
+
+            const addresses = await getAllAddresses();
+
+            // Apply filters
+            let filtered = addresses.filter((addr) => {
+                // Filter by name
+                if (nameFilter) {
+                    const nameMatch = (addr.recipient_name || '').toLowerCase().includes(nameFilter) ||
+                                    (addr.recipients || []).some((r) => r.name.toLowerCase().includes(nameFilter));
+                    if (!nameMatch) return false;
+                }
+
+                // Filter by date
+                if (dateStart || dateEnd) {
+                    const visitDate = addr.last_visit_at || addr.created_at;
+                    if (dateStart && visitDate < dateStart + 'T00:00:00') return false;
+                    if (dateEnd && visitDate > dateEnd + 'T23:59:59') return false;
+                }
+
+                return true;
+            });
+
+            if (filtered.length === 0) {
+                showModal('Info', '⚠️ Tidak ada data yang sesuai filter.');
+                return;
+            }
+
+            // Export as CSV
+            const headers = ['id', 'nama', 'gang', 'nomor', 'alamat', 'latitude', 'longitude', 'patokan', 'status_pembayaran', 'masalah', 'tipe_lokasi', 'visit_count', 'kunjungan_terakhir', 'catatan'];
+
+            const rows = filtered.map((addr) => [
+                addr.id,
+                addr.recipient_name,
+                addr.gang,
+                addr.house_number,
+                addr.address,
+                addr.latitude,
+                addr.longitude,
+                addr.landmark,
+                addr.payment_status,
+                (addr.problem_tags || []).join('; '),
+                addr.location_type,
+                addr.visit_count || 1,
+                formatDate(addr.last_visit_at || addr.created_at),
+                addr.description
+            ]);
+
+            let csv = headers.join(',') + '\n';
+            rows.forEach((row) => {
+                csv += row.map((cell) => {
+                    if (typeof cell === 'string' && (cell.includes(',') || cell.includes('"'))) {
+                        return '"' + cell.replace(/"/g, '""') + '"';
+                    }
+                    return cell || '';
+                }).join(',') + '\n';
+            });
+
+            const blob = new Blob([csv], { type: 'text/csv' });
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.href = url;
+            
+            let filename = 'peta-kurir-export';
+            if (nameFilter) filename += `-${nameFilter}`;
+            if (dateStart) filename += `-from-${dateStart}`;
+            if (dateEnd) filename += `-to-${dateEnd}`;
+            filename += `.csv`;
+
+            link.download = filename;
+            link.click();
+            URL.revokeObjectURL(url);
+
+            showModal('Sukses', `✓ ${filtered.length} data diexport`);
+        }
+
+        // Bulk update variables
+        let bulkSelectedIds = new Set();
+
+        function toggleBulkSelect(addrId) {
+            if (bulkSelectedIds.has(addrId)) {
+                bulkSelectedIds.delete(addrId);
+            } else {
+                bulkSelectedIds.add(addrId);
+            }
+            updateBulkUI();
+        }
+
+        function toggleBulkSelectAll() {
+            const checkbox = document.getElementById('bulk-select-all');
+            const allItems = document.querySelectorAll('.address-item[data-addr-id]');
+            
+            if (checkbox.checked) {
+                allItems.forEach((item) => {
+                    bulkSelectedIds.add(item.dataset.addrId);
+                });
+            } else {
+                bulkSelectedIds.clear();
+            }
+            updateBulkUI();
+        }
+
+        function updateBulkUI() {
+            const bulkSection = document.getElementById('bulk-section');
+            const countSpan = document.getElementById('bulk-count');
+            const selectAllCheckbox = document.getElementById('bulk-select-all');
+
+            if (bulkSelectedIds.size > 0) {
+                bulkSection.style.display = 'block';
+                countSpan.textContent = bulkSelectedIds.size;
+                selectAllCheckbox.checked = false;
+
+                // Update address item checkboxes
+                document.querySelectorAll('.address-item-checkbox').forEach((checkbox) => {
+                    checkbox.checked = bulkSelectedIds.has(checkbox.dataset.addrId);
+                });
+            } else {
+                bulkSection.style.display = 'none';
+                selectAllCheckbox.checked = false;
+            }
+        }
+
+        async function bulkUpdateStatus(newStatus) {
+            if (bulkSelectedIds.size === 0) return;
+
+            for (const addrId of bulkSelectedIds) {
+                const addr = await getAddressById(addrId);
+                if (!addr || !addr.recipients) continue;
+
+                // Update ALL recipients to new status
+                addr.recipients.forEach((recipient) => {
+                    recipient.status = newStatus;
+                });
+
+                // Update delivery_status
+                const hasIncomplete = addr.recipients.some((r) => r.status === 'belum selesai');
+                addr.delivery_status = hasIncomplete ? 'belum selesai' : 'berhasil';
+
+                // Add to history
+                if (!addr.history) addr.history = [];
+                addr.history.push({
+                    date: new Date().toISOString(),
+                    status: newStatus,
+                    payment_status: addr.payment_status,
+                    notes: `Bulk update: ${newStatus}`
+                });
+
+                await saveAddress(addr);
+            }
+
+            bulkSelectedIds.clear();
+            updateBulkUI();
+            updateAddressList();
+            updateMapMarkers();
+            showModal('Sukses', `✓ ${bulkSelectedIds.size} alamat diupdate`);
         }
 
         function exportCSVTemplate() {
@@ -2273,23 +2602,31 @@ addr_003,Pak Ahmad,Gang 5,8,Jl. Tengah No. 20,-6.2050,106.8600,Rumah hijau; jala
                     const dup = await checkDuplicate(newAddr.latitude, newAddr.longitude);
 
                     if (dup) {
-                        // Initialize recipients if not exists
+                        // Initialize recipients if not exists (migrating old data)
                         if (!dup.recipients) {
                             dup.recipients = dup.recipient_name ? [{
                                 name: dup.recipient_name,
-                                status: dup.delivery_status || 'berhasil',
+                                status: dup.delivery_status === 'belum selesai' ? 'belum selesai' : 'berhasil',
                                 added_at: dup.created_at
                             }] : [];
                         }
 
-                        // Merge new recipients (avoid duplicates)
+                        // Check if any imported recipient name matches existing
+                        let hasMatchingRecipient = false;
                         if (newAddr.recipients) {
                             newAddr.recipients.forEach((newRecipient) => {
-                                const exists = dup.recipients.some((r) => r.name.toLowerCase() === newRecipient.name.toLowerCase());
-                                if (!exists) {
+                                const nameMatches = dup.recipients.some((r) => 
+                                    r.name.toLowerCase() === newRecipient.name.toLowerCase()
+                                );
+                                
+                                if (nameMatches) {
+                                    hasMatchingRecipient = true;
+                                    // Mark matching recipient as "belum selesai" (order lagi)
+                                } else {
+                                    // Add new recipient
                                     dup.recipients.push({
                                         name: newRecipient.name,
-                                        status: newRecipient.status || 'belum selesai',
+                                        status: 'belum selesai',
                                         added_at: new Date().toISOString()
                                     });
                                 }
@@ -2301,18 +2638,35 @@ addr_003,Pak Ahmad,Gang 5,8,Jl. Tengah No. 20,-6.2050,106.8600,Rumah hijau; jala
                         if (newAddr.history) {
                             dup.history.push(...newAddr.history);
                         }
+                        
                         dup.visit_count = (dup.visit_count || 0) + (newAddr.visit_count || 1);
-                        dup.delivery_status = 'belum selesai'; // Mark as pending
+                        
+                        // Set delivery_status to "belum selesai" jika:
+                        // 1. Ada recipient yang sama (order lagi)
+                        // 2. Ada recipient baru
+                        if (hasMatchingRecipient || (newAddr.recipients && newAddr.recipients.length > 0)) {
+                            dup.delivery_status = 'belum selesai';
+                        }
+                        
+                        // Update info jika ada perubahan
+                        if (newAddr.problem_tags && newAddr.problem_tags.length > 0) {
+                            dup.problem_tags = [...(dup.problem_tags || []), ...newAddr.problem_tags];
+                            dup.problem_tags = [...new Set(dup.problem_tags)]; // Remove duplicates
+                        }
+                        if (newAddr.landmark) dup.landmark = newAddr.landmark;
+                        if (newAddr.payment_status) dup.payment_status = newAddr.payment_status;
 
                         await saveAddress(dup);
                     } else {
+                        // New address (tidak duplicate) - set status "belum selesai" untuk data import baru
+                        newAddr.delivery_status = 'belum selesai';
                         await saveAddress(newAddr);
                     }
                 }
 
                 updateMapMarkers();
                 updateAddressList();
-                showModal('Sukses', `✓ ${count} alamat diimport!`);
+                showModal('Sukses', `✓ ${count} alamat diimport!\n\n🔔 Semua status: "Belum Selesai"\n\nLihat di 🗺️ Peta atau 📋 Daftar`);
             }
         }
 
@@ -2585,14 +2939,37 @@ addr_003,Pak Ahmad,Gang 5,8,Jl. Tengah No. 20,-6.2050,106.8600,Rumah hijau; jala
         });
 
         document.getElementById('search-btn').addEventListener('click', () => {
-            // Search on map
-            const text = document.getElementById('search-input').value.toLowerCase();
-            // Just show all on map
-            updateMapMarkers();
+            // Filter markers on map by search text
+            const input = document.getElementById('search-input');
+            const text = input ? input.value.toLowerCase().trim() : '';
+            console.log('Search clicked:', text); // Debug
+            if (text) {
+                updateMapMarkers(text);
+            } else {
+                updateMapMarkers();
+            }
+        });
+
+        document.getElementById('search-input').addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') {
+                const input = document.getElementById('search-input');
+                const text = input ? input.value.toLowerCase().trim() : '';
+                console.log('Search Enter:', text); // Debug
+                if (text) {
+                    updateMapMarkers(text);
+                } else {
+                    updateMapMarkers();
+                }
+            }
         });
 
         document.getElementById('list-search-btn').addEventListener('click', updateAddressList);
         document.getElementById('list-search-input').addEventListener('input', updateAddressList);
+        document.getElementById('list-search-input').addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') {
+                updateAddressList();
+            }
+        });
         document.getElementById('voice-search-btn').addEventListener('click', startVoiceSearch);
 
         document.querySelectorAll('[data-filter]').forEach((btn) => {
@@ -2616,6 +2993,15 @@ addr_003,Pak Ahmad,Gang 5,8,Jl. Tengah No. 20,-6.2050,106.8600,Rumah hijau; jala
         document.getElementById('export-json-btn').addEventListener('click', exportJSON);
         document.getElementById('export-csv-btn').addEventListener('click', exportCSV);
         document.getElementById('export-csv-template-btn').addEventListener('click', exportCSVTemplate);
+        document.getElementById('export-short-csv-btn').addEventListener('click', exportShortCSV);
+        document.getElementById('bulk-select-all').addEventListener('change', toggleBulkSelectAll);
+        document.getElementById('bulk-cancel-btn').addEventListener('click', () => {
+            bulkSelectedIds.clear();
+            updateBulkUI();
+        });
+        document.getElementById('bulk-status-belum').addEventListener('click', () => bulkUpdateStatus('belum selesai'));
+        document.getElementById('bulk-status-berhasil').addEventListener('click', () => bulkUpdateStatus('berhasil'));
+        document.getElementById('bulk-status-gagal').addEventListener('click', () => bulkUpdateStatus('gagal'));
         document.getElementById('import-json-btn').addEventListener('click', importJSON);
         document.getElementById('import-csv-btn').addEventListener('click', importCSV);
         document.getElementById('clear-demo-btn').addEventListener('click', clearDemoData);
@@ -2699,8 +3085,10 @@ addr_003,Pak Ahmad,Gang 5,8,Jl. Tengah No. 20,-6.2050,106.8600,Rumah hijau; jala
             }
         }
 
-        // Start app
-        window.addEventListener('load', init);
+        // Start app with delay untuk memastikan CDN loaded
+        window.addEventListener('load', () => {
+            setTimeout(init, 500);
+        });
     </script>
 </body>
 </html>
