@@ -684,6 +684,31 @@
                     <button class="filter-btn" data-map-filter="sulit">Sulit</button>
                 </div>
                 <div id="map"></div>
+                
+                <!-- ZOOM TO CURRENT LOCATION BUTTON -->
+                <button id="zoom-to-location-btn" title="Ke Lokasi Saya" style="
+                    position: absolute;
+                    top: 110px;
+                    right: 12px;
+                    z-index: 999;
+                    width: 44px;
+                    height: 44px;
+                    border-radius: 50%;
+                    background: white;
+                    border: 2px solid #2563eb;
+                    color: #2563eb;
+                    font-size: 20px;
+                    cursor: pointer;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+                    transition: all 0.2s ease;
+                    font-weight: bold;
+                " onmouseover="this.style.background='#2563eb'; this.style.color='white';" onmouseout="this.style.background='white'; this.style.color='#2563eb';">
+                    🎯
+                </button>
+
                 <div class="fab-container">
                     <button class="fab" id="record-btn" title="Catat Selesai">✓</button>
                 </div>
@@ -1124,6 +1149,62 @@ self.addEventListener('fetch', (e) => {
         // ============================================
         // MAP OPERATIONS
         // ============================================
+
+        function zoomToCurrentLocation() {
+            if (!map) {
+                showModal('Error', '❌ Peta belum siap');
+                return;
+            }
+
+            const btn = document.getElementById('zoom-to-location-btn');
+            if (!btn) return;
+            
+            btn.style.opacity = '0.6';
+            btn.disabled = true;
+
+            if (navigator.geolocation) {
+                navigator.geolocation.getCurrentPosition(
+                    (position) => {
+                        const lat = position.coords.latitude;
+                        const lon = position.coords.longitude;
+                        
+                        currentLocation = {
+                            latitude: lat,
+                            longitude: lon
+                        };
+
+                        // Fly to location with animation
+                        if (map && map.flyTo) {
+                            map.flyTo([lat, lon], 16, {
+                                duration: 1.5
+                            });
+                        }
+
+                        // Update markers to show current location
+                        updateMapMarkers();
+
+                        btn.style.opacity = '1';
+                        btn.disabled = false;
+                    },
+                    (error) => {
+                        console.error('Geo error:', error);
+                        let errorMsg = '❌ GPS tidak tersedia';
+                        if (error.code === 1) errorMsg = '❌ Izin GPS ditolak. Aktifkan di setting.';
+                        else if (error.code === 2) errorMsg = '❌ Sinyal GPS lemah. Coba di area terbuka.';
+                        else if (error.code === 3) errorMsg = '❌ Timeout. Coba lagi.';
+                        
+                        showModal('Error', errorMsg);
+                        btn.style.opacity = '1';
+                        btn.disabled = false;
+                    },
+                    { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+                );
+            } else {
+                showModal('Error', '❌ Browser tidak support Geolocation');
+                btn.style.opacity = '1';
+                btn.disabled = false;
+            }
+        }
 
         async function updateMapMarkers(searchText = '') {
             // Remove existing markers
@@ -2597,77 +2678,126 @@ addr_003,Pak Ahmad,Gang 5,8,Jl. Tengah No. 20,-6.2050,106.8600,Rumah hijau; jala
                     showModal('Sukses', `✓ ${count} alamat diimport!`);
                 });
             } else {
-                // Merge
-                for (const newAddr of window.importNewAddresses) {
-                    const dup = await checkDuplicate(newAddr.latitude, newAddr.longitude);
-
-                    if (dup) {
-                        // Initialize recipients if not exists (migrating old data)
-                        if (!dup.recipients) {
-                            dup.recipients = dup.recipient_name ? [{
-                                name: dup.recipient_name,
-                                status: dup.delivery_status === 'belum selesai' ? 'belum selesai' : 'berhasil',
-                                added_at: dup.created_at
-                            }] : [];
-                        }
-
-                        // Check if any imported recipient name matches existing
-                        let hasMatchingRecipient = false;
-                        if (newAddr.recipients) {
-                            newAddr.recipients.forEach((newRecipient) => {
-                                const nameMatches = dup.recipients.some((r) => 
-                                    r.name.toLowerCase() === newRecipient.name.toLowerCase()
-                                );
-                                
-                                if (nameMatches) {
-                                    hasMatchingRecipient = true;
-                                    // Mark matching recipient as "belum selesai" (order lagi)
-                                } else {
-                                    // Add new recipient
-                                    dup.recipients.push({
-                                        name: newRecipient.name,
-                                        status: 'belum selesai',
-                                        added_at: new Date().toISOString()
-                                    });
-                                }
-                            });
-                        }
-
-                        // Merge history
-                        if (!dup.history) dup.history = [];
-                        if (newAddr.history) {
-                            dup.history.push(...newAddr.history);
-                        }
-                        
-                        dup.visit_count = (dup.visit_count || 0) + (newAddr.visit_count || 1);
-                        
-                        // Set delivery_status to "belum selesai" jika:
-                        // 1. Ada recipient yang sama (order lagi)
-                        // 2. Ada recipient baru
-                        if (hasMatchingRecipient || (newAddr.recipients && newAddr.recipients.length > 0)) {
-                            dup.delivery_status = 'belum selesai';
-                        }
-                        
-                        // Update info jika ada perubahan
-                        if (newAddr.problem_tags && newAddr.problem_tags.length > 0) {
-                            dup.problem_tags = [...(dup.problem_tags || []), ...newAddr.problem_tags];
-                            dup.problem_tags = [...new Set(dup.problem_tags)]; // Remove duplicates
-                        }
-                        if (newAddr.landmark) dup.landmark = newAddr.landmark;
-                        if (newAddr.payment_status) dup.payment_status = newAddr.payment_status;
-
-                        await saveAddress(dup);
-                    } else {
-                        // New address (tidak duplicate) - set status "belum selesai" untuk data import baru
-                        newAddr.delivery_status = 'belum selesai';
-                        await saveAddress(newAddr);
-                    }
-                }
-
-                updateMapMarkers();
-                updateAddressList();
-                showModal('Sukses', `✓ ${count} alamat diimport!\n\n🔔 Semua status: "Belum Selesai"\n\nLihat di 🗺️ Peta atau 📋 Daftar`);
+                // Show duplicate detection choice dialog
+                showDuplicateDetectionModal(type, count);
             }
+        }
+
+        function showDuplicateDetectionModal(type, count) {
+            const html = `
+                <h2>Deteksi Duplikat</h2>
+                <p>Lokasi yang berdekatan (dalam 30 meter) akan dijadikan 1 record.</p>
+                <div style="margin: 16px 0;">
+                    <label style="display: flex; gap: 8px; margin-bottom: 12px; padding: 12px; background: var(--bg-alt); border-radius: 6px; cursor: pointer;">
+                        <input type="radio" name="duplicate-action" value="detect" checked>
+                        <span>
+                            <strong>Ya, Deteksi Duplikat</strong><br>
+                            <small>Lokasi berdekatan digabung menjadi 1 (default restore)</small>
+                        </span>
+                    </label>
+                    <label style="display: flex; gap: 8px; padding: 12px; background: var(--bg-alt); border-radius: 6px; cursor: pointer;">
+                        <input type="radio" name="duplicate-action" value="skip">
+                        <span>
+                            <strong>Tidak, Simpan Terpisah</strong><br>
+                            <small>Semua lokasi disimpan terpisah, meski berdekatan</small>
+                        </span>
+                    </label>
+                </div>
+            `;
+
+            const modal = document.getElementById('modal-content');
+            modal.innerHTML = html;
+
+            const buttons = document.createElement('div');
+            buttons.className = 'modal-buttons';
+            buttons.innerHTML = `
+                <button class="btn-secondary" onclick="document.getElementById('modal').classList.remove('active')">Batal</button>
+                <button class="btn-primary" onclick="proceedMergeImport('${type}', ${count})">Lanjut Import</button>
+            `;
+            modal.appendChild(buttons);
+
+            document.getElementById('modal').classList.add('active');
+        }
+
+        async function proceedMergeImport(type, count) {
+            const detectDuplicate = document.querySelector('input[name="duplicate-action"]:checked').value === 'detect';
+            
+            document.getElementById('modal').classList.remove('active');
+
+            // Store choice in window variable
+            window.importDetectDuplicate = detectDuplicate;
+            
+            // Merge
+            for (const newAddr of window.importNewAddresses) {
+                // Only check for duplicates if user selected "detect"
+                const dup = detectDuplicate ? await checkDuplicate(newAddr.latitude, newAddr.longitude) : null;
+
+                if (dup && detectDuplicate) {
+                    // Initialize recipients if not exists (migrating old data)
+                    if (!dup.recipients) {
+                        dup.recipients = dup.recipient_name ? [{
+                            name: dup.recipient_name,
+                            status: dup.delivery_status === 'belum selesai' ? 'belum selesai' : 'berhasil',
+                            added_at: dup.created_at
+                        }] : [];
+                    }
+
+                    // Check if any imported recipient name matches existing
+                    let hasMatchingRecipient = false;
+                    if (newAddr.recipients) {
+                        newAddr.recipients.forEach((newRecipient) => {
+                            const nameMatches = dup.recipients.some((r) => 
+                                r.name.toLowerCase() === newRecipient.name.toLowerCase()
+                            );
+                            
+                            if (nameMatches) {
+                                hasMatchingRecipient = true;
+                                // Mark matching recipient as "belum selesai" (order lagi)
+                            } else {
+                                // Add new recipient
+                                dup.recipients.push({
+                                    name: newRecipient.name,
+                                    status: 'belum selesai',
+                                    added_at: new Date().toISOString()
+                                });
+                            }
+                        });
+                    }
+
+                    // Merge history
+                    if (!dup.history) dup.history = [];
+                    if (newAddr.history) {
+                        dup.history.push(...newAddr.history);
+                    }
+                    
+                    dup.visit_count = (dup.visit_count || 0) + (newAddr.visit_count || 1);
+                    
+                    // Set delivery_status to "belum selesai" jika:
+                    // 1. Ada recipient yang sama (order lagi)
+                    // 2. Ada recipient baru
+                    if (hasMatchingRecipient || (newAddr.recipients && newAddr.recipients.length > 0)) {
+                        dup.delivery_status = 'belum selesai';
+                    }
+                    
+                    // Update info jika ada perubahan
+                    if (newAddr.problem_tags && newAddr.problem_tags.length > 0) {
+                        dup.problem_tags = [...(dup.problem_tags || []), ...newAddr.problem_tags];
+                        dup.problem_tags = [...new Set(dup.problem_tags)]; // Remove duplicates
+                    }
+                    if (newAddr.landmark) dup.landmark = newAddr.landmark;
+                    if (newAddr.payment_status) dup.payment_status = newAddr.payment_status;
+
+                    await saveAddress(dup);
+                } else {
+                    // No duplicate OR user selected "skip" → save as new
+                    newAddr.delivery_status = 'belum selesai';
+                    await saveAddress(newAddr);
+                }
+            }
+
+            updateMapMarkers();
+            updateAddressList();
+            showModal('Sukses', `✓ ${count} alamat diimport!\n\n${detectDuplicate ? '🔍 Duplikat terdeteksi & digabung' : '✓ Semua disimpan terpisah (tidak ada merge)'}`);
         }
 
         async function clearDemoData() {
@@ -2919,6 +3049,7 @@ addr_003,Pak Ahmad,Gang 5,8,Jl. Tengah No. 20,-6.2050,106.8600,Rumah hijau; jala
             btn.addEventListener('click', () => showPage(btn.dataset.page));
         });
 
+        document.getElementById('zoom-to-location-btn').addEventListener('click', zoomToCurrentLocation);
         document.getElementById('record-btn').addEventListener('click', showRecordSheet);
         document.getElementById('close-record-sheet').addEventListener('click', () => {
             closeRecordSheet();
