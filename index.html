@@ -1264,14 +1264,22 @@ self.addEventListener('fetch', (e) => {
 
                 // Apply search filter
                 if (searchText && searchText.length > 0) {
-                    const matches = (
+                    // Check basic fields
+                    const basicMatch = (
                         (addr.recipient_name || '').toLowerCase().includes(searchText) ||
                         (addr.gang || '').toLowerCase().includes(searchText) ||
                         (addr.house_number || '').toLowerCase().includes(searchText) ||
                         (addr.landmark || '').toLowerCase().includes(searchText) ||
                         (addr.address || '').toLowerCase().includes(searchText)
                     );
-                    if (!matches) {
+
+                    // Check recipients array names
+                    const recipientMatch = addr.recipients && addr.recipients.length > 0 &&
+                        addr.recipients.some((r) => 
+                            (r.name || '').toLowerCase().includes(searchText)
+                        );
+
+                    if (!basicMatch && !recipientMatch) {
                         return; // Skip this marker
                     }
                 }
@@ -2214,13 +2222,22 @@ self.addEventListener('fetch', (e) => {
             const searchText = document.getElementById('list-search-input').value.toLowerCase();
             if (searchText) {
                 filtered = filtered.filter((addr) => {
-                    return (
+                    // Check basic fields
+                    const basicMatch = (
                         (addr.recipient_name || '').toLowerCase().includes(searchText) ||
                         (addr.gang || '').toLowerCase().includes(searchText) ||
                         (addr.house_number || '').toLowerCase().includes(searchText) ||
                         (addr.landmark || '').toLowerCase().includes(searchText) ||
                         (addr.address || '').toLowerCase().includes(searchText)
                     );
+
+                    // Check recipients array names
+                    const recipientMatch = addr.recipients && addr.recipients.length > 0 &&
+                        addr.recipients.some((r) => 
+                            (r.name || '').toLowerCase().includes(searchText)
+                        );
+
+                    return basicMatch || recipientMatch;
                 });
             }
 
