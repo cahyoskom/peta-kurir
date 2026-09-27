@@ -676,6 +676,8 @@
                 </div>
                 <div class="filter-buttons">
                     <button class="filter-btn active" data-map-filter="semua">Semua</button>
+                    <button class="filter-btn" data-map-filter="order">Order</button>
+                    <button class="filter-btn" data-map-filter="tidak-order">Tidak Order</button>
                     <button class="filter-btn" data-map-filter="belum">Belum Selesai</button>
                     <button class="filter-btn" data-map-filter="berhasil">Berhasil</button>
                     <button class="filter-btn" data-map-filter="bermasalah">Bermasalah</button>
@@ -723,6 +725,8 @@
                 </div>
                 <div class="filter-buttons">
                     <button class="filter-btn active" data-filter="semua">Semua</button>
+                    <button class="filter-btn" data-filter="order">Order</button>
+                    <button class="filter-btn" data-filter="tidak-order">Tidak Order</button>
                     <button class="filter-btn" data-filter="belum">Belum Selesai</button>
                     <button class="filter-btn" data-filter="berhasil">Berhasil</button>
                     <button class="filter-btn" data-filter="bermasalah">Bermasalah</button>
@@ -742,6 +746,8 @@
                     </div>
                     
                     <div style="display: flex; gap: 6px;">
+                        <button id="bulk-status-order" style="flex: 1; padding: 8px; background: #8b5cf6; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 12px; font-weight: 600;">📦 Order</button>
+                        <button id="bulk-status-tidak-order" style="flex: 1; padding: 8px; background: #6366f1; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 12px; font-weight: 600;">❌ Tidak Order</button>
                         <button id="bulk-status-belum" style="flex: 1; padding: 8px; background: #f59e0b; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 12px; font-weight: 600;">🔔 Belum</button>
                         <button id="bulk-status-berhasil" style="flex: 1; padding: 8px; background: #10b981; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 12px; font-weight: 600;">✓ Berhasil</button>
                         <button id="bulk-status-gagal" style="flex: 1; padding: 8px; background: #ef4444; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 12px; font-weight: 600;">❌ Gagal</button>
@@ -786,6 +792,29 @@
                         <button class="btn-secondary" id="export-short-csv-btn" style="width: 100%; font-size: 13px;">
                             🔽 Export
                         </button>
+                    </div>
+
+                    <h3 style="margin-bottom: 12px; font-size: 14px;">🤖 OCR Screenshot</h3>
+
+                    <div style="background: var(--bg-alt); padding: 12px; border-radius: 6px; margin-bottom: 24px;">
+                        <p style="font-size: 12px; color: var(--text-light); margin-bottom: 8px;">📸 Upload screenshot dari aplikasi kurir → auto convert ke CSV</p>
+                        
+                        <input type="file" id="ocr-image-input" accept="image/*" style="width: 100%; padding: 8px; border: 1px solid var(--border); border-radius: 4px; font-size: 13px; margin-bottom: 8px; box-sizing: border-box;">
+                        
+                        <button class="btn-secondary" id="ocr-process-btn" style="width: 100%; font-size: 13px; margin-bottom: 8px;">
+                            🔄 Process OCR
+                        </button>
+
+                        <textarea id="ocr-result" placeholder="OCR result akan muncul di sini..." style="width: 100%; height: 100px; padding: 8px; border: 1px solid var(--border); border-radius: 4px; font-size: 11px; font-family: monospace; box-sizing: border-box; display: none;"></textarea>
+
+                        <div id="ocr-buttons" style="display: none; gap: 8px; margin-top: 8px;">
+                            <button class="btn-secondary" id="ocr-export-csv-btn" style="flex: 1;">
+                                📊 Export CSV
+                            </button>
+                            <button class="btn-secondary" id="ocr-import-btn" style="flex: 1;">
+                                📤 Import Sekarang
+                            </button>
+                        </div>
                     </div>
 
                     <h3 style="margin-bottom: 12px; font-size: 14px;">Import Data</h3>
@@ -983,6 +1012,7 @@
     <input type="file" id="file-import-csv" accept=".csv" style="display: none;">
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
 
     <script>
         // ============================================
@@ -1245,7 +1275,11 @@ self.addEventListener('fetch', (e) => {
                 let shouldShow = true;
                 
                 if (currentMapFilter !== 'semua') {
-                    if (currentMapFilter === 'belum') {
+                    if (currentMapFilter === 'order') {
+                        shouldShow = addr.delivery_status === 'order';
+                    } else if (currentMapFilter === 'tidak-order') {
+                        shouldShow = addr.delivery_status === 'tidak order';
+                    } else if (currentMapFilter === 'belum') {
                         shouldShow = addr.delivery_status === 'belum selesai';
                     } else if (currentMapFilter === 'berhasil') {
                         shouldShow = (!addr.problem_tags || addr.problem_tags.length === 0) && addr.delivery_status !== 'belum selesai';
@@ -1288,7 +1322,13 @@ self.addEventListener('fetch', (e) => {
                 let markerColor = '#10b981'; // green (berhasil)
                 let markerIcon = '📍';
 
-                if (addr.delivery_status === 'belum selesai') {
+                if (addr.delivery_status === 'order') {
+                    markerColor = '#8b5cf6'; // purple (order)
+                    markerIcon = '📦';
+                } else if (addr.delivery_status === 'tidak order') {
+                    markerColor = '#6366f1'; // indigo (tidak order)
+                    markerIcon = '❌';
+                } else if (addr.delivery_status === 'belum selesai') {
                     markerColor = '#f59e0b'; // orange (belum selesai)
                     markerIcon = '🔔';
                 } else if (addr.problem_tags && addr.problem_tags.length > 0) {
@@ -1426,15 +1466,25 @@ self.addEventListener('fetch', (e) => {
             });
         }
 
-        async function checkDuplicate(latitude, longitude) {
+        async function checkDuplicate(latitude, longitude, newAddress) {
             const addresses = await getAllAddresses();
-            const THRESHOLD = 0.0003; // ~30 meters
+            const THRESHOLD = 0.00005; // ~5 meters
 
             for (const addr of addresses) {
                 const latDiff = Math.abs(addr.latitude - latitude);
                 const lonDiff = Math.abs(addr.longitude - longitude);
 
                 if (latDiff < THRESHOLD && lonDiff < THRESHOLD) {
+                    // Check nomor rumah saja, bukan alamat lengkap
+                    if (newAddress && newAddress.house_number) {
+                        const existingNum = (addr.house_number || '').toLowerCase().trim();
+                        const newNum = newAddress.house_number.toLowerCase().trim();
+                        
+                        // Jika nomor rumah berbeda, tidak merge
+                        if (existingNum && newNum && existingNum !== newNum) {
+                            continue; // Skip this duplicate check
+                        }
+                    }
                     return addr;
                 }
             }
@@ -2046,6 +2096,8 @@ self.addEventListener('fetch', (e) => {
             const displayName = recipientName.replace(/\\'/g, "'");
             
             const options = [
+                { label: '📦 Order', value: 'order', active: currentStatus === 'order' },
+                { label: '❌ Tidak Order', value: 'tidak order', active: currentStatus === 'tidak order' },
                 { label: '🔔 Belum Selesai', value: 'belum selesai', active: currentStatus === 'belum selesai' },
                 { label: '✓ Berhasil', value: 'berhasil', active: currentStatus === 'berhasil' },
                 { label: '❌ Gagal', value: 'gagal', active: currentStatus === 'gagal' }
@@ -2208,6 +2260,8 @@ self.addEventListener('fetch', (e) => {
             let filtered = addresses;
             if (currentFilter !== 'semua') {
                 filtered = addresses.filter((addr) => {
+                    if (currentFilter === 'order') return addr.delivery_status === 'order';
+                    if (currentFilter === 'tidak-order') return addr.delivery_status === 'tidak order';
                     if (currentFilter === 'belum') return addr.delivery_status === 'belum selesai';
                     if (currentFilter === 'berhasil') return addr.problem_tags?.length === 0 && addr.delivery_status !== 'belum selesai';
                     if (currentFilter === 'bermasalah') return addr.problem_tags?.length > 0;
@@ -2250,8 +2304,20 @@ self.addEventListener('fetch', (e) => {
             }
 
             list.innerHTML = filtered.map((addr) => {
-                const statusColor = addr.delivery_status === 'belum selesai' ? '#f59e0b' : '#10b981';
-                const statusLabel = addr.delivery_status === 'belum selesai' ? '🔔 Belum Selesai' : '✓ Selesai';
+                let statusColor = '#10b981'; // default green (berhasil)
+                let statusLabel = '✓ Selesai';
+                
+                if (addr.delivery_status === 'order') {
+                    statusColor = '#8b5cf6'; // purple
+                    statusLabel = '📦 Order';
+                } else if (addr.delivery_status === 'tidak order') {
+                    statusColor = '#6366f1'; // indigo
+                    statusLabel = '❌ Tidak Order';
+                } else if (addr.delivery_status === 'belum selesai') {
+                    statusColor = '#f59e0b'; // orange
+                    statusLabel = '🔔 Belum Selesai';
+                }
+                
                 const recipientCount = addr.recipients ? addr.recipients.length : 1;
                 const isChecked = bulkSelectedIds.has(addr.id);
                 
@@ -2340,6 +2406,251 @@ self.addEventListener('fetch', (e) => {
             link.download = `peta-kurir-export-${new Date().toISOString().split('T')[0]}.csv`;
             link.click();
             URL.revokeObjectURL(url);
+        }
+
+        // ============================================
+        // OCR FUNCTIONS
+        // ============================================
+
+        let ocrCsvData = null;
+
+        async function processOCR() {
+            const fileInput = document.getElementById('ocr-image-input');
+            const file = fileInput.files[0];
+
+            if (!file) {
+                showModal('Error', '❌ Pilih file gambar terlebih dahulu');
+                return;
+            }
+
+            const btn = document.getElementById('ocr-process-btn');
+            btn.disabled = true;
+            btn.textContent = '⏳ Processing OCR...';
+
+            try {
+                const reader = new FileReader();
+                reader.onload = async (e) => {
+                    try {
+                        // Process with Tesseract
+                        const { data: { text } } = await Tesseract.recognize(
+                            e.target.result,
+                            ['ind', 'eng'],
+                            { logger: (m) => console.log('OCR:', m.status, m.progress) }
+                        );
+
+                        // Parse OCR text to CSV
+                        ocrCsvData = parseOCRtoCSV(text);
+                        
+                        // Count entries
+                        const entryCount = (ocrCsvData.match(/\n/g) || []).length - 1; // -1 for header
+
+                        // Show result
+                        const resultArea = document.getElementById('ocr-result');
+                        resultArea.value = ocrCsvData;
+                        resultArea.style.display = 'block';
+
+                        const buttonsDiv = document.getElementById('ocr-buttons');
+                        buttonsDiv.style.display = 'flex';
+
+                        btn.disabled = false;
+                        btn.textContent = '🔄 Process OCR';
+
+                        showModal('Sukses', `✓ OCR berhasil!\n\n📊 Total ${entryCount} entries\n\nData siap diexport atau import.`);
+                    } catch (err) {
+                        console.error('Tesseract error:', err);
+                        showModal('Error', `❌ OCR gagal: ${err.message}`);
+                        btn.disabled = false;
+                        btn.textContent = '🔄 Process OCR';
+                    }
+                };
+                reader.readAsArrayBuffer(file);
+            } catch (err) {
+                console.error('Error:', err);
+                showModal('Error', `❌ Error: ${err.message}`);
+                btn.disabled = false;
+                btn.textContent = '🔄 Process OCR';
+            }
+        }
+
+        function parseOCRtoCSV(ocrText) {
+            // Parse OCR output ke CSV format
+            // Gunakan logic yang sama seperti Python script (berhasil extract 38)
+            
+            const lines = ocrText.split('\n');
+            const entries = [];
+
+            let i = 0;
+            while (i < lines.length) {
+                const line = lines[i].trim();
+                
+                // Find GTL tracking ID
+                const gtlMatch = line.match(/^(GTL\d+)/);
+                if (gtlMatch) {
+                    const entry = {
+                        id: gtlMatch[1],
+                        nama: '',
+                        gang: '',
+                        nomor: '',
+                        alamat: '',
+                        patokan: '',
+                        catatan: ''
+                    };
+                    
+                    // Next line often has name
+                    if (i + 1 < lines.length) {
+                        const nextLine = lines[i + 1].trim();
+                        if (nextLine && /^[A-Za-z\s]+$/.test(nextLine) && nextLine.length < 30) {
+                            entry.nama = nextLine.charAt(0).toUpperCase() + nextLine.slice(1).toLowerCase();
+                            i += 1;
+                        }
+                    }
+                    
+                    // Collect address lines (up to next GTL)
+                    const addrLines = [];
+                    let j = i + 1;
+                    while (j < lines.length) {
+                        const l = lines[j].trim();
+                        if (/^GTL\d+/.test(l)) {
+                            break;
+                        }
+                        // Skip noise lines (phone, status, OCR artifacts)
+                        if (l && !/sedang|proses|\(\+62\)|\[A0|\[\d+\]/.test(l)) {
+                            addrLines.push(l);
+                        }
+                        j++;
+                    }
+                    
+                    // Parse address lines
+                    for (const al of addrLines) {
+                        // Extract number (no., nomor, etc)
+                        const numMatch = al.match(/\bno\.?\s*(\d+[a-z]*)/i);
+                        if (numMatch) {
+                            entry.nomor = numMatch[1];
+                        }
+                        
+                        // Extract jalan/gang
+                        if (/^(jl|jalan|gang|gg)\b/i.test(al)) {
+                            entry.gang = al.substring(0, 50);
+                        }
+                        
+                        // Extract address (RT/RW/lokasi)
+                        if (/rt|rw|jakarta|cipedak|jagakarsa/i.test(al)) {
+                            entry.alamat = al.substring(0, 80);
+                        }
+                        
+                        // Extract patokan/landmark
+                        if (/depan|sebelah|dekat|rumah|toko|warung|mushola|blok|pagar|gang/i.test(al)) {
+                            entry.patokan = al.substring(0, 60);
+                        }
+                    }
+                    
+                    if (entry.nama || entry.alamat) {
+                        entries.push(entry);
+                    }
+                    
+                    i += 1;
+                } else {
+                    i += 1;
+                }
+            }
+
+            // Build CSV
+            let csv = 'id,nama,gang,nomor,alamat,latitude,longitude,patokan,status_pembayaran,masalah,tipe_lokasi,visit_count,kunjungan_terakhir,catatan\n';
+
+            for (const e of entries) {
+                csv += `${e.id || ''},${e.nama || ''},${e.gang || ''},${e.nomor || ''},${e.alamat || ''},,,,belum,,,1,,${e.catatan || 'Dari OCR'}\n`;
+            }
+
+            console.log(`✓ OCR parsed: ${entries.length} entries`);
+            return csv;
+        }
+
+        function exportOCRtoCSV() {
+            if (!ocrCsvData) {
+                showModal('Error', '❌ Tidak ada data OCR');
+                return;
+            }
+
+            const blob = new Blob([ocrCsvData], { type: 'text/csv' });
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = `ocr-extract-${new Date().toISOString().split('T')[0]}.csv`;
+            link.click();
+            URL.revokeObjectURL(url);
+        }
+
+        async function importOCRdata() {
+            if (!ocrCsvData) {
+                showModal('Error', '❌ Tidak ada data OCR');
+                return;
+            }
+
+            // Parse CSV
+            const lines = ocrCsvData.split('\n').filter((l) => l.trim() && !l.startsWith('id,'));
+            const addresses = [];
+
+            console.log(`Parsing ${lines.length} CSV lines`);
+
+            for (const line of lines) {
+                if (!line.trim()) continue;
+
+                const values = parseCSVLine(line);
+                if (values.length >= 5 && values[0]) {
+                    const recipients = (values[1] || '')
+                        .split(';')
+                        .map((n) => n.trim())
+                        .filter((n) => n);
+
+                    const addr = {
+                        id: values[0],
+                        recipient_name: values[1] || '',
+                        gang: values[2] || '',
+                        house_number: values[3] || '',
+                        address: values[4] || '',
+                        latitude: values[5] ? parseFloat(values[5]) : 0,
+                        longitude: values[6] ? parseFloat(values[6]) : 0,
+                        landmark: values[7] || '',
+                        payment_status: values[8] || 'belum',
+                        problem_tags: (values[9] || '')
+                            .split(';')
+                            .map((t) => t.trim())
+                            .filter((t) => t),
+                        location_type: values[10] || 'jelas',
+                        visit_count: parseInt(values[11]) || 1,
+                        description: values[13] || '',
+                        delivery_status: 'belum selesai',
+                        recipients: recipients.map((name) => ({
+                            name: name,
+                            status: 'belum selesai',
+                            added_at: new Date().toISOString()
+                        })),
+                        history: [{
+                            date: new Date().toISOString(),
+                            status: 'belum selesai',
+                            payment_status: values[8] || 'belum',
+                            landmark: values[7] || '',
+                            notes: `Import dari OCR: ${recipients.join(', ')}`
+                        }],
+                        created_at: new Date().toISOString(),
+                        updated_at: new Date().toISOString()
+                    };
+
+                    if (addr.recipient_name && addr.address) {
+                        addresses.push(addr);
+                    }
+                }
+            }
+
+            console.log(`✓ Created ${addresses.length} address objects`);
+
+            if (addresses.length === 0) {
+                showModal('Error', '❌ Tidak ada data valid untuk diimport');
+                return;
+            }
+
+            window.importNewAddresses = addresses;
+            showImportModal('csv', addresses.length);
         }
 
         async function exportShortCSV() {
@@ -2703,7 +3014,7 @@ addr_003,Pak Ahmad,Gang 5,8,Jl. Tengah No. 20,-6.2050,106.8600,Rumah hijau; jala
         function showDuplicateDetectionModal(type, count) {
             const html = `
                 <h2>Deteksi Duplikat</h2>
-                <p>Lokasi yang berdekatan (dalam 30 meter) akan dijadikan 1 record.</p>
+                <p>Lokasi yang berdekatan (dalam 5 meter) akan dijadikan 1 record.</p>
                 <div style="margin: 16px 0;">
                     <label style="display: flex; gap: 8px; margin-bottom: 12px; padding: 12px; background: var(--bg-alt); border-radius: 6px; cursor: pointer;">
                         <input type="radio" name="duplicate-action" value="detect" checked>
@@ -2747,7 +3058,8 @@ addr_003,Pak Ahmad,Gang 5,8,Jl. Tengah No. 20,-6.2050,106.8600,Rumah hijau; jala
             // Merge
             for (const newAddr of window.importNewAddresses) {
                 // Only check for duplicates if user selected "detect"
-                const dup = detectDuplicate ? await checkDuplicate(newAddr.latitude, newAddr.longitude) : null;
+                // Pass newAddr for address similarity check
+                const dup = detectDuplicate ? await checkDuplicate(newAddr.latitude, newAddr.longitude, newAddr) : null;
 
                 if (dup && detectDuplicate) {
                     // Initialize recipients if not exists (migrating old data)
@@ -2769,12 +3081,12 @@ addr_003,Pak Ahmad,Gang 5,8,Jl. Tengah No. 20,-6.2050,106.8600,Rumah hijau; jala
                             
                             if (nameMatches) {
                                 hasMatchingRecipient = true;
-                                // Mark matching recipient as "belum selesai" (order lagi)
+                                // Mark matching recipient as "order" (order lagi)
                             } else {
                                 // Add new recipient
                                 dup.recipients.push({
                                     name: newRecipient.name,
-                                    status: 'belum selesai',
+                                    status: 'order',
                                     added_at: new Date().toISOString()
                                 });
                             }
@@ -2789,11 +3101,11 @@ addr_003,Pak Ahmad,Gang 5,8,Jl. Tengah No. 20,-6.2050,106.8600,Rumah hijau; jala
                     
                     dup.visit_count = (dup.visit_count || 0) + (newAddr.visit_count || 1);
                     
-                    // Set delivery_status to "belum selesai" jika:
+                    // Set delivery_status to "order" jika:
                     // 1. Ada recipient yang sama (order lagi)
                     // 2. Ada recipient baru
                     if (hasMatchingRecipient || (newAddr.recipients && newAddr.recipients.length > 0)) {
-                        dup.delivery_status = 'belum selesai';
+                        dup.delivery_status = 'order';
                     }
                     
                     // Update info jika ada perubahan
@@ -2806,16 +3118,15 @@ addr_003,Pak Ahmad,Gang 5,8,Jl. Tengah No. 20,-6.2050,106.8600,Rumah hijau; jala
 
                     await saveAddress(dup);
                 } else {
-                    // No duplicate OR user selected "skip" → save as new
-                    newAddr.delivery_status = 'belum selesai';
+                    // No duplicate OR user selected "skip" → save as new with "order" status
+                    newAddr.delivery_status = 'order';
                     await saveAddress(newAddr);
                 }
             }
 
             updateMapMarkers();
             updateAddressList();
-            showModal('Sukses', `✓ ${count} alamat diimport!\n\n${detectDuplicate ? '🔍 Duplikat terdeteksi & digabung' : '✓ Semua disimpan terpisah (tidak ada merge)'}`);
-        }
+            showModal('Sukses', `✓ ${count} alamat diimport!\n\n${detectDuplicate ? '🔍 Duplikat terdeteksi & digabung' : '✓ Semua disimpan terpisah (tidak ada merge)'}\n\n📦 Status: Order`);
 
         async function clearDemoData() {
             const addresses = await getAllAddresses();
@@ -3147,6 +3458,8 @@ addr_003,Pak Ahmad,Gang 5,8,Jl. Tengah No. 20,-6.2050,106.8600,Rumah hijau; jala
             bulkSelectedIds.clear();
             updateBulkUI();
         });
+        document.getElementById('bulk-status-order').addEventListener('click', () => bulkUpdateStatus('order'));
+        document.getElementById('bulk-status-tidak-order').addEventListener('click', () => bulkUpdateStatus('tidak order'));
         document.getElementById('bulk-status-belum').addEventListener('click', () => bulkUpdateStatus('belum selesai'));
         document.getElementById('bulk-status-berhasil').addEventListener('click', () => bulkUpdateStatus('berhasil'));
         document.getElementById('bulk-status-gagal').addEventListener('click', () => bulkUpdateStatus('gagal'));
@@ -3236,6 +3549,17 @@ addr_003,Pak Ahmad,Gang 5,8,Jl. Tengah No. 20,-6.2050,106.8600,Rumah hijau; jala
         // Start app with delay untuk memastikan CDN loaded
         window.addEventListener('load', () => {
             setTimeout(init, 500);
+            
+            // Add OCR event listeners after DOM ready
+            setTimeout(() => {
+                const processBtn = document.getElementById('ocr-process-btn');
+                const exportBtn = document.getElementById('ocr-export-csv-btn');
+                const importBtn = document.getElementById('ocr-import-btn');
+
+                if (processBtn) processBtn.addEventListener('click', processOCR);
+                if (exportBtn) exportBtn.addEventListener('click', exportOCRtoCSV);
+                if (importBtn) importBtn.addEventListener('click', importOCRdata);
+            }, 1000);
         });
     </script>
 </body>
