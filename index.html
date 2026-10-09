@@ -7,10 +7,10 @@
     <meta name="description" content="Kurir-Q - Buku alamat pribadi kurir berbasis GPS">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-    <meta name="apple-mobile-web-app-title" content="PK">
+    <meta name="apple-mobile-web-app-title" content="Kurir-Q">
     <link rel="apple-touch-icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 180 180'><rect fill='%232563eb' width='180' height='180'/><text x='90' y='110' font-size='100' fill='white' text-anchor='middle' dominant-baseline='middle'>📦</text></svg>">
-    <link rel="manifest" href="data:application/manifest+json,{%22name%22:%22Kurir-Q%20v1.0%22,%22short_name%22:%22PK%22,%22start_url%22:%22.%22,%22display%22:%22standalone%22,%22background_color%22:%22%23fff%22,%22theme_color%22:%22%232563eb%22,%22orientation%22:%22portrait%22}">
-    <title>PK</title>
+    <link rel="manifest" href="data:application/manifest+json,{%22name%22:%22Kurir-Q%20v1.0%22,%22short_name%22:%22Kurir-Q%22,%22start_url%22:%22.%22,%22display%22:%22standalone%22,%22background_color%22:%22%23fff%22,%22theme_color%22:%22%232563eb%22,%22orientation%22:%22portrait%22}">
+    <title>Kurir-Q v1.0</title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -694,6 +694,7 @@
                 status.style.color = '#4CAF50';
                 delete window.offlineTileStartTime;
                 delete window.offlineTileCount;
+                console.log(`✅ Download selesai: ${areaKey} (${tiles.length} tiles)`);
                 return;
             }
 
@@ -701,28 +702,46 @@
             const url = `https://tile.openstreetmap.org/${tile.z}/${tile.x}/${tile.y}.png`;
             const key = `tile_${tile.z}_${tile.x}_${tile.y}`;
 
-            fetch(url, { timeout: 5000 })
-                .then(res => res.blob())
+            // Use AbortController for proper timeout
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 8000);
+
+            fetch(url, { signal: controller.signal })
+                .then(res => {
+                    clearTimeout(timeoutId);
+                    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                    return res.blob();
+                })
                 .then(blob => {
                     const store = db.transaction(['offlineTiles'], 'readwrite').objectStore('offlineTiles');
-                    store.put({ key, data: blob, z: tile.z, x: tile.x, y: tile.y });
-
-                    window.offlineTileCount++;
-                    const elapsed = (Date.now() - window.offlineTileStartTime) / 1000;
-                    const rate = window.offlineTileCount / elapsed;
-                    const remaining = (total - window.offlineTileCount) / rate;
-                    const remainingMin = Math.ceil(remaining / 60);
-
-                    const progress = ((index + 1) / total * 100).toFixed(0);
-                    progressBar.style.width = progress + '%';
-                    progressText.textContent = progress + '%';
+                    const putReq = store.put({ key, data: blob, z: tile.z, x: tile.x, y: tile.y });
                     
-                    const timeEl = document.getElementById(`${areaKey}-progress-time`);
-                    if (timeEl) timeEl.textContent = `${remainingMin}m`;
+                    putReq.onsuccess = () => {
+                        window.offlineTileCount++;
+                        const elapsed = (Date.now() - window.offlineTileStartTime) / 1000;
+                        const rate = window.offlineTileCount / elapsed;
+                        const remaining = (total - window.offlineTileCount) / rate;
+                        const remainingMin = Math.ceil(remaining / 60);
 
-                    downloadTilesRecursive(db, tiles, index + 1, total, areaKey, progressBar, progressText, btn, status);
+                        const progress = ((index + 1) / total * 100).toFixed(0);
+                        progressBar.style.width = progress + '%';
+                        progressText.textContent = progress + '%';
+                        
+                        const timeEl = document.getElementById(`${areaKey}-progress-time`);
+                        if (timeEl) timeEl.textContent = `${remainingMin}m`;
+
+                        downloadTilesRecursive(db, tiles, index + 1, total, areaKey, progressBar, progressText, btn, status);
+                    };
+                    
+                    putReq.onerror = () => {
+                        console.warn(`⚠️ IndexedDB put failed for tile ${index}: ${key}`);
+                        downloadTilesRecursive(db, tiles, index + 1, total, areaKey, progressBar, progressText, btn, status);
+                    };
                 })
                 .catch(err => {
+                    clearTimeout(timeoutId);
+                    console.warn(`⚠️ Tile fetch failed [${index}/${total}]: ${url}`, err.message);
+                    // Skip failed tile, continue
                     downloadTilesRecursive(db, tiles, index + 1, total, areaKey, progressBar, progressText, btn, status);
                 });
         }
